@@ -192,7 +192,11 @@ def _newest_runtime(candidates: list[Path]) -> Path:
 
 
 def read_runtime_maafw_version(runtime_path: Path) -> str | None:
-    """原生库里内嵌的版本串，规范化成 PEP 440；不是恰好一个或解析不了时 None。"""
+    """原生库里内嵌的版本串，规范化成 PEP 440；有效版本不是恰好一个时 None。
+
+    编译器会把版本串拆成片段，正则可能另外命中 ``6.0.0-bA`` 这类解析不了的残片
+    （MaaEnd 带的 ``v6.0.0-beta.3`` 就是这样）：先丢掉解析不了的候选，再要求恰好一个。
+    """
 
     try:
         data = (runtime_path / PROJECT_MAAFW_DLL_NAME).read_bytes()
@@ -203,12 +207,15 @@ def read_runtime_maafw_version(runtime_path: Path) -> str | None:
         match.group(1).decode("ascii", errors="ignore")
         for match in _MAAFW_DLL_VERSION_RE.finditer(data)
     }
-    if len(found) != 1:
+    versions = set()
+    for raw in found:
+        try:
+            versions.add(str(Version(raw)))
+        except InvalidVersion:
+            continue
+    if len(versions) != 1:
         return None
-    try:
-        return str(Version(found.pop()))
-    except InvalidVersion:
-        return None
+    return versions.pop()
 
 
 def _runtime_loadable_on_host(runtime_path: Path) -> bool:
