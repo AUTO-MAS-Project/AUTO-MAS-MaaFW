@@ -192,6 +192,7 @@ logger = get_logger("托管管理 API")
     summary="查看 MFW 脚本的内嵌副本状态",
     response_model=MaaFWEmbeddedStatusOut,
     status_code=200,
+    openapi_extra={"x-auto-mas-mcp": True},
 )
 async def get_maafw_embedded_status(
     payload: MaaFWEmbeddedIn = Body(...),
@@ -206,6 +207,7 @@ async def get_maafw_embedded_status(
     summary="按来源目录导入（或重新导入）副本",
     response_model=MaaFWEmbeddedStatusOut,
     status_code=200,
+    openapi_extra={"x-auto-mas-mcp": True},
 )
 async def reimport_maafw_embedded(
     payload: MaaFWEmbeddedReimportIn = Body(...),
@@ -291,6 +293,7 @@ async def clone_maafw_embedded(
     summary="按所选 resource 推断 MFW 项目的安卓游戏包名",
     response_model=MaaFWGamePackageOut,
     status_code=200,
+    openapi_extra={"x-auto-mas-mcp": True},
 )
 async def resolve_maafw_game_package(
     payload: MaaFWGamePackageIn = Body(...),
@@ -313,6 +316,7 @@ async def resolve_maafw_game_package(
     summary="预览 MFW interface",
     response_model=MaaFWInterfacePreviewOut,
     status_code=200,
+    openapi_extra={"x-auto-mas-mcp": True},
 )
 async def preview_maafw_interface(
     payload: MaaFWInterfacePreviewIn = Body(...),

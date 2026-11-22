@@ -202,7 +202,12 @@ class MaaFWMaintenanceService:
         if current is None:
             return
         root = embedded_projects_root()
-        if root.is_dir() and classify_views(current, root).unanswered_owners:
+        views = classify_views(current, root)
+        if root.is_dir() and views.unanswered_owners:
+            return
+        if current.records() and not views.alive:
+            # 托管还登记着、视图却一个都不在（只恢复了配置、数据目录被挪走）：这时按视图判断会把缓存整批删掉。
+            logger.info("MFW 托管已登记但没有存活视图，跳过运行环境缓存清理")
             return
         try:
             removed = prune_prepared_environments(keep_project_paths(current))
