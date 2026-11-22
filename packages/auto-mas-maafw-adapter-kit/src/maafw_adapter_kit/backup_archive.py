@@ -46,17 +46,34 @@ MaaFW 特有的侧车、恢复语义（恢复前强制归档当前）与预览�
 import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 from maafw_interface.interface.loader import parse_json_text
 from maafw_interface.interface.models import (
     DUPLICATE_TASK_SUFFIX_SEPARATOR,
     PRETASK_TASK_PREFIX,
 )
-from auto_mas_core.host.utils import get_logger
-from auto_mas_core.host.utils_common_config import archive as _utils_config_archive
 
-OVERLAY_SIDECAR_NAME = _utils_config_archive.OVERLAY_SIDECAR_NAME
-read_overlay_sidecar = _utils_config_archive.read_overlay_sidecar
+from ._logging import get_logger
+
+
+def _utils_config_archive() -> Any:
+    """宿主的公共归档模块（``app.utils.common.config.archive``），用到时才经 SDK 取。
+
+    原先在模块顶层导入：本模块离开宿主就导入不了，而且依赖宿主先导入过这个子模块。
+    """
+
+    from auto_mas_core.host.utils_common_config import archive
+
+    return archive
+
+
+def __getattr__(name: str) -> Any:
+    # 原先顶层的两个别名，照旧可以从本模块取
+    if name in ("OVERLAY_SIDECAR_NAME", "read_overlay_sidecar"):
+        return getattr(_utils_config_archive(), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 logger = get_logger("MaaFW 配置备份")
 
@@ -143,8 +160,12 @@ def archive_mas_backup(
 
     if not overlay:
         return None
-    dest = _utils_config_archive.archive_files(
-        {OVERLAY_SIDECAR_NAME: json.dumps(overlay, ensure_ascii=False, indent=2)},
+    dest = _utils_config_archive().archive_files(
+        {
+            _utils_config_archive().OVERLAY_SIDECAR_NAME: json.dumps(
+                overlay, ensure_ascii=False, indent=2
+            )
+        },
         mas_backup_root(script_id, user_id),
         force=force,
     )
@@ -158,13 +179,15 @@ def archive_mas_backup(
 def list_mas_backups(script_id: str, user_id: str) -> list[str]:
     """账号池的全部归档时间戳（倒序，最新在前）。"""
 
-    return _utils_config_archive.list_times(mas_backup_root(script_id, user_id))
+    return _utils_config_archive().list_times(mas_backup_root(script_id, user_id))
 
 
 def get_mas_backup_dir(script_id: str, user_id: str, ts: str) -> Path | None:
     """取账号池指定时间戳的归档目录；不存在返回 None。"""
 
-    return _utils_config_archive.get_backup_dir(mas_backup_root(script_id, user_id), ts)
+    return _utils_config_archive().get_backup_dir(
+        mas_backup_root(script_id, user_id), ts
+    )
 
 
 def restore_mas_backup(script_id: str, user_id: str, ts: str) -> dict | None:
@@ -173,7 +196,7 @@ def restore_mas_backup(script_id: str, user_id: str, ts: str) -> dict | None:
     backup_dir = get_mas_backup_dir(script_id, user_id, ts)
     if backup_dir is None:
         raise ValueError(f"备份不存在: {ts}")
-    return read_overlay_sidecar(backup_dir)
+    return _utils_config_archive().read_overlay_sidecar(backup_dir)
 
 
 def archive_mas_runtime_backup(script_id: str, user_id: str, overlay: dict) -> None:
@@ -204,7 +227,7 @@ def native_backup_root(script_id: str, project_path: str | Path) -> Path:
         / script_id
         / "MaaFWBackups"
         / "native"
-        / _utils_config_archive.config_root_key(project_path)
+        / _utils_config_archive().config_root_key(project_path)
     )
 
 
@@ -219,7 +242,7 @@ def collect_native_files(project_path: str | Path) -> dict[str, Path]:
     files: dict[str, Path] = {}
     config_dir = project_path / "config"
     if config_dir.is_dir():
-        for rel, path in _utils_config_archive.dir_files(config_dir).items():
+        for rel, path in _utils_config_archive().dir_files(config_dir).items():
             files[f"config/{rel}"] = path
     return files
 
@@ -236,7 +259,7 @@ def archive_native_backup(
     files = collect_native_files(project_path)
     if not files:
         return None
-    dest = _utils_config_archive.archive_files(
+    dest = _utils_config_archive().archive_files(
         files, native_backup_root(script_id, project_path), force=force
     )
     if dest is None:
@@ -249,7 +272,9 @@ def archive_native_backup(
 def list_native_backups(script_id: str, project_path: str | Path) -> list[str]:
     """MaaFW 项目配置全部归档时间戳（倒序，最新在前）。"""
 
-    return _utils_config_archive.list_times(native_backup_root(script_id, project_path))
+    return _utils_config_archive().list_times(
+        native_backup_root(script_id, project_path)
+    )
 
 
 def get_native_backup_dir(
@@ -257,7 +282,7 @@ def get_native_backup_dir(
 ) -> Path | None:
     """取指定时间戳的项目配置归档目录；不存在返回 None。"""
 
-    return _utils_config_archive.get_backup_dir(
+    return _utils_config_archive().get_backup_dir(
         native_backup_root(script_id, project_path), ts
     )
 
@@ -294,12 +319,14 @@ def restore_native_backup(script_id: str, project_path: str | Path, ts: str) -> 
     backup_dir = get_native_backup_dir(script_id, project_path, ts)
     if backup_dir is None:
         raise ValueError(f"备份不存在: {ts}")
-    managed, reason = native_restore_scope(_utils_config_archive.dir_files(backup_dir))
+    managed, reason = native_restore_scope(
+        _utils_config_archive().dir_files(backup_dir)
+    )
     if reason:
         raise ValueError(reason)
     project_path = Path(project_path)
     archive_native_backup(script_id, project_path, force=True)
-    _utils_config_archive.restore_files(backup_dir, project_path, managed)
+    _utils_config_archive().restore_files(backup_dir, project_path, managed)
     logger.info(f"MaaFW 项目配置已恢复备份 {ts}")
 
 
@@ -373,7 +400,7 @@ def build_overlay_preview(
         task_rows.append(
             {
                 "key": "账号",
-                "value": _utils_config_archive.mask_account(overlay["Id"]),
+                "value": _utils_config_archive().mask_account(overlay["Id"]),
             }
         )
     if task_rows:
@@ -405,7 +432,7 @@ def build_native_preview(script_id: str, project_path: str | Path, ts: str) -> d
     backup_dir = get_native_backup_dir(script_id, project_path, ts)
     if backup_dir is None:
         raise ValueError(f"备份不存在: {ts}")
-    files = _utils_config_archive.dir_files(backup_dir)
+    files = _utils_config_archive().dir_files(backup_dir)
     if not files:
         raise ValueError(f"备份内容为空: {ts}")
 

@@ -47,9 +47,8 @@ from maafw_interface.interface.task_config import (
 from maafw_interface.runner.pipeline_override import (
     SECRET_INPUTS_SNAPSHOT_KEY,
 )
-from auto_mas_core.host.utils import dpapi_decrypt, dpapi_encrypt, get_logger
 
-from maafw_project_update.host.embedded_project import resolve_maafw_project_root
+from ._logging import get_logger
 
 logger = get_logger("MaaFW 密码字段")
 
@@ -67,12 +66,16 @@ def is_sealed_secret(value: str) -> bool:
 def _seal_value(value: str, _option_name: str = "", _field_name: str = "") -> str:
     if is_sealed_secret(value):
         return value
+    from auto_mas_core.host.utils import dpapi_encrypt
+
     return SECRET_PREFIX + dpapi_encrypt(value)
 
 
 def _open_value(value: str, option_name: str, field_name: str) -> str:
     if not is_sealed_secret(value):
         return value
+    from auto_mas_core.host.utils import dpapi_decrypt
+
     try:
         return dpapi_decrypt(value[len(SECRET_PREFIX) :])
     except Exception as exc:
@@ -315,6 +318,8 @@ def prepare_user_task_snapshot(
     视图不在或 interface 读不出来时原样放行——那时前端也打不开任务选项编辑器，
     快照里不会有新填的密码；视图恢复后下一次保存照常处理。
     """
+
+    from maafw_project_update.host.embedded_project import resolve_maafw_project_root
 
     root = Path(resolve_maafw_project_root(script_id, script_config))
     if not root.is_dir():

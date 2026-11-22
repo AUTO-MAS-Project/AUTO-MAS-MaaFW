@@ -15,12 +15,15 @@
 
 """MFW 账号任务更新：全局选项兼容与密码准备（专项自己的整理由专项在调用前做）。"""
 
-import asyncio
-from typing import Any
+from __future__ import annotations
 
-from auto_mas_core.host.config import ConfigEntry
+import asyncio
+from typing import TYPE_CHECKING, Any
 
 from .option_secrets import prepare_user_task_snapshot
+
+if TYPE_CHECKING:
+    from auto_mas_core.host.config import ConfigEntry
 
 
 async def prepare_user_update(

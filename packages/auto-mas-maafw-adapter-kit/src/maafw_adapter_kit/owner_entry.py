@@ -18,19 +18,30 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from maafw_interface.interface.plan_rules import EMPTY_PLAN_RULES, MaaFWPlanRules
-from maafw_project_update.host.owners import (
-    OWNER_PROTOCOL,
-    UNSET,
-    ManagedRecord,
-    OwnerListing,
-    PathCheck,
-    ReadResult,
-    RecordPatch,
-    WriteResult,
-)
 
 if TYPE_CHECKING:
     from maafw_interface.interface.models import MaaFWInterface
+    from maafw_project_update.host.owners import (
+        ManagedRecord,
+        OwnerListing,
+        PathCheck,
+        ReadResult,
+        RecordPatch,
+        WriteResult,
+    )
+
+# 属主协议版本：项目更新（``maafw_project_update.host.owners.OWNER_PROTOCOL``）登记时比对，
+# 对不上就当属主没登记。原先直接取项目更新的常量；这里是属主一侧实现的版本，写成字面值，
+# 本模块顶层就不用导入项目更新插件。
+OWNER_PROTOCOL = 1
+
+
+def _owners() -> Any:
+    """项目更新一侧的属主协议数据类（``ManagedRecord``、``ReadResult`` 等），用到时才取。"""
+
+    from maafw_project_update.host import owners
+
+    return owners
 
 
 def _host_config() -> Any:
@@ -40,7 +51,7 @@ def _host_config() -> Any:
 
 
 def _record(uid: str, config: Any, order: int) -> ManagedRecord:
-    return ManagedRecord(
+    return _owners().ManagedRecord(
         uid=uid,
         kind=type(config).__name__.removesuffix("Config"),
         order=order,
@@ -70,6 +81,7 @@ def _follow_source(config: Any) -> bool:
 def _patch_data(patch: RecordPatch) -> dict[str, Any]:
     """写回补丁 → 配置的分组字典；只放给了值的项，形状与原先各处直接写回时一致。"""
 
+    UNSET = _owners().UNSET
     data: dict[str, Any] = {}
     if patch.source_path is not UNSET:
         data.setdefault("Info", {})["Path"] = patch.source_path
@@ -113,6 +125,7 @@ class BuiltinConfigOwner:
         return type(config) is self._config_type()
 
     def _lookup(self, script_id: str) -> tuple[str, Any] | ReadResult:
+        ReadResult = _owners().ReadResult
         try:
             uid = uuid.UUID(str(script_id))
         except ValueError as exc:
@@ -137,9 +150,10 @@ class BuiltinConfigOwner:
             for order, (uid, config) in enumerate(host.ScriptConfig.items())
             if self._mine(config)
         )
-        return OwnerListing(ready=ready, items=items)
+        return _owners().OwnerListing(ready=ready, items=items)
 
     def read_managed(self, script_id: str) -> ReadResult:
+        ReadResult = _owners().ReadResult
         found = self._lookup(script_id)
         if isinstance(found, ReadResult):
             return found
@@ -155,6 +169,8 @@ class BuiltinConfigOwner:
         return ReadResult("mine", record=_record(uid, config, order))
 
     def check_source_path(self, script_id: str, path: str) -> PathCheck:
+        owners = _owners()
+        ReadResult, PathCheck = owners.ReadResult, owners.PathCheck
         found = self._lookup(script_id)
         if isinstance(found, ReadResult):
             return PathCheck("error", found.detail or "托管不存在")
@@ -171,6 +187,7 @@ class BuiltinConfigOwner:
     # -- 写 -----------------------------------------------------------------
 
     async def lock_managed(self, script_id: str) -> str | None:
+        ReadResult = _owners().ReadResult
         found = self._lookup(script_id)
         if isinstance(found, ReadResult):
             return None
@@ -191,6 +208,8 @@ class BuiltinConfigOwner:
     async def write_record(
         self, script_id: str, patch: RecordPatch, *, ticket: str | None = None
     ) -> WriteResult:
+        owners = _owners()
+        ReadResult, WriteResult = owners.ReadResult, owners.WriteResult
         data = _patch_data(patch)
         if ticket is not None:
             # 调用方持着这个托管的 X 票：直接提交原节点；Config.update_script 的外部编辑入口

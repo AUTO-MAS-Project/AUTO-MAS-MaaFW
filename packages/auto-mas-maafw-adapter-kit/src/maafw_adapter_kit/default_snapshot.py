@@ -38,18 +38,18 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from auto_mas_core.host.config import ConfigEntry
-from auto_mas_core.host.core import Config
 from maafw_interface.interface.loader import load_interface_model_cached
 from maafw_interface.runner.run_plan import (
     MaaFWRunPlanError,
     resolve_default_snapshot,
 )
-from auto_mas_core.host.utils import get_logger
 
-from maafw_project_update.host.embedded_project import copy_is_healthy, resolve_maafw_project_root
+from ._logging import get_logger
+
+if TYPE_CHECKING:
+    from auto_mas_core.host.config import ConfigEntry
 
 logger = get_logger("MaaFW 默认任务队列")
 
@@ -92,6 +92,11 @@ def _build_default_snapshots(
 ) -> dict[str, tuple[str, str]]:
     """``targets`` 是 ``(账号 id, 账号名称, 选的预设)``；返回 ``{账号 id: (要写进的快照 JSON,
     给日志的来源说明)}``。"""
+
+    from maafw_project_update.host.embedded_project import (
+        copy_is_healthy,
+        resolve_maafw_project_root,
+    )
 
     root = Path(resolve_maafw_project_root(script_id, script_config))
     if not copy_is_healthy(root):
@@ -182,6 +187,8 @@ async def fill_default_task_snapshots(
     except Exception as exc:  # noqa: BLE001 - 补不上不该挡住读写用户与运行
         logger.opt(exception=True).warning(f"生成 MFW 默认任务队列失败：{exc}")
         return
+
+    from auto_mas_core.host.core import Config
 
     for user_id, _, selected_preset in targets:
         if user_id not in snapshots:

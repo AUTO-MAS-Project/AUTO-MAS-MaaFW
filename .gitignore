@@ -23,10 +23,11 @@ data/
 config/
 debug/
 
-# 三块服务插件的单元测试只留本地（各包自己的 .gitignore 里也写了）
+# 三块服务插件和专项共用库的单元测试只留本地（各包自己的 .gitignore 里也写了）
 packages/auto-mas-maafw-agent-env/tests/
 packages/auto-mas-maafw-runner/tests/
 packages/auto-mas-maafw-project-update/tests/
+packages/auto-mas-maafw-adapter-kit/tests/
 
 docs/notes/
 
