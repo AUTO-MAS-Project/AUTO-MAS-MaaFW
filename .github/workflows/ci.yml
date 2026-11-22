@@ -51,11 +51,7 @@ jobs:
           cd "$RUNNER_TEMP"
           "$GITHUB_WORKSPACE/.smoke/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_import.py" \
             maafw_interface maafw_native maafw_agent_env.core maafw_runner.core
-      - name: 两块库的单元测试
-        run: |
-          .smoke/bin/python -m pip install "pytest>=9,<10"
-          .smoke/bin/python -m pytest -q -p no:cacheprovider \
-            packages/auto-mas-maafw-native/tests packages/auto-mas-maafw-interface/tests
+      # 两块库的单元测试要用真实的 MaaFramework 项目当夹具，CI 上没有，只在本地跑。
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: python-distributions
