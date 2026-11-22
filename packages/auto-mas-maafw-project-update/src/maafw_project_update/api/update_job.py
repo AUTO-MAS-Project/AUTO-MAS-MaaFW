@@ -209,6 +209,17 @@ async def apply_project_update(script_id: str) -> MaaFWApiReply:
     return await asyncio.shield(job.task)
 
 
+def running_update_jobs() -> list[str]:
+    """还没结束的后台手动更新（托管 ID）：插件停用前据此拒绝（``teardown_blockers``）。"""
+
+    with _jobs_lock:
+        return [
+            script_id
+            for script_id, job in _jobs.items()
+            if job.finished_at is None and job.task is not None and not job.task.done()
+        ]
+
+
 async def run_project_update(script_id: str, action: str) -> MaaFWApiReply:
     """``/maafw/update``：``check`` 照旧同步做完，``apply`` 走后台登记。"""
 

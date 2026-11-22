@@ -67,6 +67,7 @@ from maafw_project_update.host.embedded_project import (
     switch_or_confirm_in_progress,
 )
 from maafw_project_update.host.project_path import (
+    is_project_path_reserved,
     is_project_updating,
     release_project_path,
     release_project_path_sync,
@@ -637,6 +638,25 @@ async def discover_prefetch(request: MaaFWProjectRequest) -> list[DownloadReques
 # ---------------------------------------------------------------------------
 # 项目会话
 # ---------------------------------------------------------------------------
+
+
+def peek_project_skip(script_id: str) -> MaaFWProjectOpenOutcome | None:
+    """不占预约，只看这个托管的项目此刻能不能打开：被占着时给出良性跳过的结局，否则 None。
+
+    给专项的托管级检查（``UserExpander.check``）用：拿到结局就返回 ``ScriptSkip(outcome.reason)``，
+    托管记「跳过」而不是「异常」。判据与 :meth:`MaaFWProjectSession.reserve` 拿不到预约时相同；
+    只是一瞥，之后真去 ``reserve`` 时仍可能拿不到，那时照旧按 ``reserve`` 的结局处理。碰磁盘
+    （切换 journal），调用方放进工作线程。
+    """
+
+    view = embedded_project_dir(script_id)
+    if not is_project_path_reserved(view):
+        return None
+    if switch_or_confirm_in_progress(script_id):
+        return MaaFWProjectOpenOutcome("skipped", SKIP_SWITCHING, skip="switching")
+    if is_project_updating(view):
+        return MaaFWProjectOpenOutcome("skipped", SKIP_UPDATING, skip="updating")
+    return MaaFWProjectOpenOutcome("skipped", SKIP_OCCUPIED, skip="occupied")
 
 
 class MaaFWProjectSession:
@@ -1684,5 +1704,6 @@ __all__ = [
     "current_siblings",
     "describe_update_result",
     "discover_prefetch",
+    "peek_project_skip",
     "project_request_from_record",
 ]

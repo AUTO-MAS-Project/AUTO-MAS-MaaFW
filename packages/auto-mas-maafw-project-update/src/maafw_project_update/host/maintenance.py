@@ -41,6 +41,8 @@ class MaaFWMaintenanceService:
         self._retention_days = retention_days
         self._process_started_at = process_started_at
         self._managed_snapshot = managed_snapshot or owners.snapshot
+        #: 上一次副本迁移因属主的回答不算数（还没登记、没答上来）而跳过；插件据此在属主登记后补跑。
+        self.migration_deferred = False
 
     def _snapshot(self, *, require_ready: bool) -> owners.LiveSnapshot | None:
         """在事件循环上问一次全部属主；``require_ready`` 时答不上来就是 None。"""
@@ -67,7 +69,9 @@ class MaaFWMaintenanceService:
             return
         if self._snapshot(require_ready=True) is None:
             logger.warning("MFW 托管属主的回答这次不算数，跳过 MFW 副本迁移")
+            self.migration_deferred = True
             return
+        self.migration_deferred = False
         await migrate_embedded_copies_to_payloads(
             managed=self._records, process_started_at=self._process_started_at
         )
@@ -174,6 +178,39 @@ class MaaFWMaintenanceService:
             )
         # 属主确认仍在的视图，加上判定不了「已经不在」的视图（没属主标记、属主没登记）。
         reconcile_agent_venvs(keep_view_paths(current))
+
+    async def clean_env_cache(self) -> None:
+        """运行环境确认缓存（``config/maafw_env_cache``）只留仍在的托管的项目目录。
+
+        与运行池对账同一个权威集合（``live_projects.keep_project_paths``）。有视图记着没答上来的属主时
+        整轮不删：那个属主名下、项目在来源目录的托管这里看不见。
+        """
+
+        from maafw_project_update.host.embedded_project import embedded_projects_root
+        from maafw_project_update.host.live_projects import (
+            classify_views,
+            keep_project_paths,
+        )
+
+        try:
+            from maafw_agent_env.host.env_cache import prune_prepared_environments
+        except ImportError:  # agent 环境积木还是 0.1.0：没有这个函数，照旧只增不减
+            return
+        if not self._scripts_loaded_intact():
+            return
+        current = self._snapshot(require_ready=True)
+        if current is None:
+            return
+        root = embedded_projects_root()
+        if root.is_dir() and classify_views(current, root).unanswered_owners:
+            return
+        try:
+            removed = prune_prepared_environments(keep_project_paths(current))
+        except Exception as exc:  # noqa: BLE001 - 缓存清不掉不影响启动
+            logger.warning(f"MFW 运行环境缓存清理失败: {exc}")
+            return
+        if removed:
+            logger.info(f"已清理 {removed} 份不再用到的 MFW 运行环境缓存")
 
     async def clean_embedded_copies(self) -> None:
         """清掉内嵌副本目录下的两类垃圾：staging 半成品、属主确认托管已不存在的副本。

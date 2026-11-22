@@ -179,3 +179,18 @@ def is_project_updating(path: str | Path) -> bool:
     key = normalize_project_path(path)
     with _ACTIVE_PROJECT_PATHS_LOCK:
         return key in _UPDATING_PROJECT_PATHS
+
+
+def is_project_path_reserved(path: str | Path) -> bool:
+    """这个目录此刻有没有被预约（运行、更新、导入、准备运行环境）；只看不占。"""
+
+    key = normalize_project_path(path)
+    with _ACTIVE_PROJECT_PATHS_LOCK:
+        return key in _ACTIVE_PROJECT_PATHS
+
+
+def busy_project_counts() -> tuple[int, int]:
+    """``(被预约的目录数, 正在更新的目录数)``：插件停用前据此拒绝（``teardown_blockers``）。"""
+
+    with _ACTIVE_PROJECT_PATHS_LOCK:
+        return len(_ACTIVE_PROJECT_PATHS), len(_UPDATING_PROJECT_PATHS)

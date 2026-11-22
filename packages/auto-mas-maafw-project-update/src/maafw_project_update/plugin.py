@@ -33,6 +33,8 @@ _LOADED_POLL_SECONDS = 5.0
 _LOADED_WAIT_SECONDS = 600.0
 # 原生日志清理的间隔（原宿主每日定时器里的一步）。
 _NATIVE_LOG_INTERVAL_SECONDS = 24 * 3600.0
+# 启动期维护因属主没登记跳过迁移后，第一个属主登记时等这么久再补跑（让陆续登记的属主到齐）。
+_OWNER_SETTLE_SECONDS = 10.0
 
 logger = get_logger("MFW 项目更新插件")
 
@@ -52,6 +54,9 @@ class Plugin(ExtensionPlugin):
         # (属主名, 服务名) → 取入口的函数：同一属主重复登记时交回同一个函数（owners 认 is）
         self._resolvers: dict[tuple[str, str], Callable[[], Any]] = {}
         self._signal_injected = False
+        # 启动期维护服务（on_enable 建）；属主晚于本插件登记时据此补跑一轮（见 _register_owner）
+        self._maintenance: Any | None = None
+        self._rerun_scheduled = False
 
     # -- 服务 -----------------------------------------------------------------
 
@@ -84,6 +89,48 @@ class Plugin(ExtensionPlugin):
 
         owners.register_owner(name, resolve=resolve)
         self._resolvers[(name, service)] = resolve
+        self._schedule_rerun_after_owner()
+
+    def _schedule_rerun_after_owner(self) -> None:
+        """启动期维护因属主还没登记而跳过了副本迁移时，属主登记后补跑一轮（只补一次）。
+
+        首次依次启用时本插件先于三个专项启用，维护跑在属主登记之前；等 ``_OWNER_SETTLE_SECONDS``
+        让陆续登记的属主都到齐再跑。
+        """
+
+        service = self._maintenance
+        if service is None or self._rerun_scheduled:
+            return
+        if not getattr(service, "migration_deferred", False):
+            return
+        self._rerun_scheduled = True
+        self.background_tasks.spawn(
+            lambda: _rerun_after_owners(service), retain_result=False
+        )
+
+    async def teardown_blockers(self) -> list[str]:
+        """有项目正在更新、或项目目录正被运行 / 导入 / 准备环境占用时，拒绝停用、重载、卸载。
+
+        这些在途工作不对应宿主的托管锁（后台手动更新是自己起的任务，运行前更新与准备环境只持本积木
+        的视图预约），拆到一半会留下半截视图。只读、只看内存里的登记，宿主在拆整棵依赖树之前调。
+        """
+
+        from .api.update_job import running_update_jobs
+        from .host.project_path import busy_project_counts
+
+        reasons: list[str] = []
+        jobs = running_update_jobs()
+        reserved, updating = busy_project_counts()
+        if jobs or updating:
+            reasons.append(
+                f"MFW 有 {max(len(jobs), updating)} 个项目正在更新，请等更新结束后再操作"
+            )
+        if reserved:
+            reasons.append(
+                f"MFW 有 {reserved} 个项目目录正被运行、导入或准备运行环境占用，"
+                "请等它们结束后再操作"
+            )
+        return reasons
 
     # -- 生命周期 ---------------------------------------------------------------
 
@@ -105,6 +152,8 @@ class Plugin(ExtensionPlugin):
             retention_days=lambda: Config.setting.Function.HistoryRetentionTime,
             process_started_at=_process_started_at(),
         )
+        self._maintenance = service
+        self._rerun_scheduled = False
         self.background_tasks.spawn(
             lambda: _maintenance_loop(service), retain_result=False
         )
@@ -114,6 +163,7 @@ class Plugin(ExtensionPlugin):
         if self._signal_injected:
             owners.set_loaded_signal(None)
             self._signal_injected = False
+        self._maintenance = None
 
 
 def managed_configs_loaded() -> bool:
@@ -160,6 +210,17 @@ async def _maintenance_loop(service: Any) -> None:
         await asyncio.sleep(_NATIVE_LOG_INTERVAL_SECONDS)
 
 
+async def _rerun_after_owners(service: Any) -> None:
+    """属主登记后补跑的那一轮启动期维护（第一次依次启用时，迁移跳过了）。"""
+
+    await asyncio.sleep(_OWNER_SETTLE_SECONDS)
+    if not managed_configs_loaded():
+        logger.info("托管配置没有完整加载，属主登记后的 MFW 维护补跑这次不做")
+        return
+    logger.info("MFW 托管属主已登记，补跑一轮启动期维护")
+    await _startup_maintenance(service)
+
+
 async def _startup_maintenance(service: Any) -> None:
     """照原 ``main.py`` 的 ``_maafw_startup_maintenance`` 顺序跑；失败记一行，下次启动再试。"""
 
@@ -171,6 +232,7 @@ async def _startup_maintenance(service: Any) -> None:
         # 先清副本，再把应保留的视图交给 agent 环境对账：副本删掉以后它引用的隔离 venv
         # 才会变成无人引用
         await service.clean_agent_venvs()
+        await service.clean_env_cache()
         await service.clean_runtime_blobs()
         await service.clean_update_cache()
         # 副本清理之后：副本没了，它的 binding / runtime 才会变成无人引用
