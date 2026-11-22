@@ -602,11 +602,15 @@ class MaaFWDesktopGame:
                 await self.process.kill()
             except Exception as exc:
                 logger.warning(f"MaaFW 清理时关闭游戏失败: {exc}")
+                if launched_at is None:
+                    self._log(f"关闭本次由 MAS 启动的游戏失败: {exc}", warning=True)
                 closed = False
             else:
                 if launched_at is not None:
                     # 链接拉起的游戏不是 MAS 的子进程，写一行让用户知道是 MAS 关的
                     self._log("已关闭本次通过链接打开的游戏")
+                else:
+                    self._log("已关闭本次由 MAS 启动的游戏")
             # 先关进程、再读路径：读不出来时游戏进程已关、下面的 finally 照样清状态
             game_path = _close_game_path(spec)
             if launched_at is not None and game_path is not None:
