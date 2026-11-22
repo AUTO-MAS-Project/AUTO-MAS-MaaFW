@@ -17,6 +17,7 @@ from .requirements_file import (
 )
 from .versions import (
     exact_version_of,
+    infer_exact_maafw_version,
     normalize_maafw_requirement,
     requirement_distribution_name,
 )
@@ -108,9 +109,24 @@ def load_project_requirements(project_path: Path) -> list[str]:
     return list(parsed.requirements) if parsed is not None else []
 
 
+def project_exact_maafw_version(project_path: str | Path) -> str | None:
+    """项目更新前记下它当前钉定的 maafw 精确版本（范围声明或读不出时为 None）。
+
+    更新提交后拿它与新版本比：版本换了就把旧版本作为 ``replaced_versions`` 传给
+    回收，旧 runtime 不必再等 24 h 宽限。
+    """
+
+    try:
+        requirement = resolve_project_maafw_requirement(Path(project_path))
+    except Exception:  # noqa: BLE001 - 读不出来就当没有精确版本
+        return None
+    return infer_exact_maafw_version(requirement)
+
+
 __all__ = [
     "bundled_project_maafw_requirement",
     "declared_project_maafw_requirement",
     "load_project_requirements",
+    "project_exact_maafw_version",
     "resolve_project_maafw_requirement",
 ]

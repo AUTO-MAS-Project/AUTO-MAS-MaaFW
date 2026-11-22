@@ -97,12 +97,57 @@ def normalize_maafw_requirement(
     return str(requirement)
 
 
+def pep440_to_maafw_tag(version_text: str) -> str | None:
+    """把 requirement 里的 PEP 440 版本映射成 MaaFramework 的 git tag。
+
+    ``5.14.0b1`` → ``v5.14.0-beta.1``，``5.14.0a2`` → ``v5.14.0-alpha.2``，
+    ``5.14.0rc1`` → ``v5.14.0-rc.1``，``5.13.1`` → ``v5.13.1``。
+    post / dev / local 任一非空返回 ``None``：nightly 的 DLL 串形如
+    ``v5.13.1-post.6-ci.<id>``，PyPI 与 tag 都没有，兜底无从谈起。
+    MaaFramework 仓库里没有反向映射可抄（``pip_pack.py::set_toml_ver`` 只是把 CI 传入
+    的 tag 原样写进 pyproject），这里按 CI 的命名习惯正向推。
+    """
+
+    try:
+        version = Version(str(version_text).strip())
+    except InvalidVersion:
+        return None
+    if version.post is not None or version.dev is not None or version.local:
+        return None
+    base = ".".join(str(part) for part in version.release)
+    if version.pre is None:
+        return f"v{base}"
+    phase, number = version.pre
+    suffix = {"a": "alpha", "b": "beta", "rc": "rc"}.get(phase)
+    if suffix is None:
+        return None
+    return f"v{base}-{suffix}.{number}"
+
+
+def infer_exact_maafw_version(requirement: str | None) -> str | None:
+    if not requirement:
+        return None
+    try:
+        parsed = Requirement(requirement)
+    except InvalidRequirement:
+        return None
+    if canonicalize_name(parsed.name) != "maafw":
+        return None
+    specifiers = list(parsed.specifier)
+    if len(specifiers) != 1 or specifiers[0].operator not in {"==", "==="}:
+        return None
+    value = specifiers[0].version.strip()
+    return None if not value or "*" in value else value
+
+
 __all__ = [
     "REQUIREMENT_NAME_RE",
     "MaaFWBindingError",
     "exact_version_of",
+    "infer_exact_maafw_version",
     "normalize_maafw_requirement",
     "normalize_version",
     "parse_maafw_requirement",
+    "pep440_to_maafw_tag",
     "requirement_distribution_name",
 ]

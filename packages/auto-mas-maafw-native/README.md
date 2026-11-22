@@ -9,13 +9,14 @@ MaaFramework 原生库识别库，从 AUTO-MAS 宿主的 MFW 引擎原样搬出�
 | 模块 | 提供 |
 | --- | --- |
 | `maafw_native.architecture` | `host_architecture`、`supported_architecture_target`、`ArchitectureTarget` 和架构错误类型 |
-| `maafw_native.layout` | `data/mfw`、`.payloads`、`.pycache` 等目录布局常量 |
+| `maafw_native.layout` | `data/mfw`、`.payloads`、`.pycache` 等目录布局常量；`view_dir`（托管的视图目录） |
 | `maafw_native.offline_dependencies` | 离线依赖文件识别 |
 | `maafw_native.pe` | `detect_pe_architecture`、`pe_imported_dlls` |
 | `maafw_native.project_runtime` | 项目原生库路径、版本、架构、依赖与加载探测 |
-| `maafw_native.requirement` | 项目 maafw requirement 解析 |
+| `maafw_native.requirement` | 项目 maafw requirement 解析；`project_exact_maafw_version` |
 | `maafw_native.requirements_file` | requirements 文件解析 |
-| `maafw_native.versions` | 版本规范化、requirement 解析、`MaaFWBindingError` |
+| `maafw_native.subprocess_env` | 子进程环境的宿主变量隔离、代理注入、pyc 前缀；Python 包索引的两个读法 |
+| `maafw_native.versions` | 版本规范化、requirement 解析、`MaaFWBindingError`、`pep440_to_maafw_tag`、`infer_exact_maafw_version` |
 
 ## 开发
 

@@ -10,7 +10,8 @@
 - ``architecture``：本机架构的唯一判定来源；
 - ``requirements_file``：按 pip 的规则读 ``requirements.txt``；
 - ``offline_dependencies``：项目自带的离线依赖材料（本库自己不用，agent 环境与项目更新共用）；
-- ``layout``：``data/mfw``、``.payloads``、``.pycache`` 这类目录布局常量。
+- ``layout``：``data/mfw``、``.payloads``、``.pycache`` 这类目录布局常量与托管视图目录 ``view_dir``；
+- ``subprocess_env``：MFW 子进程环境的宿主变量隔离、代理注入、pyc 前缀与 Python 包索引的读法。
 
 依赖方向：别的包（runner / agent_env / runtime_pool / project_update / 宿主接缝）导入本库，
 本库**不导入**它们，只用标准库与 ``packaging``。worker 子进程也导入本库，所以同样不得
