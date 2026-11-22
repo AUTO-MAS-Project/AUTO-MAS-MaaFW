@@ -1,0 +1,8 @@
+# 与宿主仓 pyproject.toml 的 [tool.ruff] 一致（快照 048993fca），库代码按同一口径格式化与检查。
+line-length = 88
+target-version = "py312"
+extend-exclude = ["_src", ".venv*", "dist", "data", ".tmp"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I"]
+ignore = ["E501", "F403", "F405"]

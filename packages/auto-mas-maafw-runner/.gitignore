@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.venv-*/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+/debug/
+# 0.1.0 口径：单元测试留本地，不提交
+/tests/

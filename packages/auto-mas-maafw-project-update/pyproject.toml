@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-mas-maafw-project-update"
+version = "0.1.0"
+description = "MFW 项目更新服务插件：项目副本、视图、导入更新与维护清理"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "AUTO-MAS Team" }]
+keywords = ["auto-mas-plugin", "auto-mas-id:maafw_project_update"]
+dependencies = [
+    "auto-mas-core>=5.9.0b1,<6",
+    "auto-mas-maafw-interface>=0.1.0,<0.2",
+    "auto-mas-maafw-native>=0.1.0,<0.2",
+    "auto-mas-maafw-agent-env>=0.1.0,<0.2",
+]
+
+[project.urls]
+Changelog = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaFW/blob/main/packages/auto-mas-maafw-project-update/CHANGELOG.md"
+Documentation = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaFW/blob/main/packages/auto-mas-maafw-project-update/README.md"
+Homepage = "https://auto-mas.top"
+Repository = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaFW"
+Issues = "https://github.com/AUTO-MAS-Project/AUTO-MAS-MaaFW/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+maafw_project_update = ["py.typed"]
+"maafw_project_update.core.project_update" = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+ignore = ["F403", "F405"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["maafw_project_update"]
+known-third-party = ["app", "auto_mas_core", "maafw_interface", "maafw_native", "maafw_agent_env"]

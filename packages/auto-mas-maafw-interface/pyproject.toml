@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-mas-maafw-interface"
+version = "0.1.0"
+description = "MaaFramework interface 解析与运行计划库"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "AUTO-MAS Team" }]
+dependencies = [
+    "pydantic>=2.11,<3",
+    "json5>=0.14,<1",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"maafw_interface" = ["py.typed"]
+"maafw_interface.interface" = ["py.typed"]
+
+[project.optional-dependencies]
+test = ["pytest>=9,<10"]
+
+

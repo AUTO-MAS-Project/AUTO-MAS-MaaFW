@@ -1,0 +1,32 @@
+# 宿主源码快照（抽库与等价对拍用，只留本地）
+_src/
+
+# 虚拟环境
+.venv/
+.venv-*/
+.smoke/
+
+# 构建产物
+dist/
+build/
+*.egg-info/
+
+# 缓存
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# 本地运行与测试时落下的目录
+.tmp/
+data/
+config/
+debug/
+
+# 三块服务插件的单元测试只留本地（各包自己的 .gitignore 里也写了）
+packages/auto-mas-maafw-agent-env/tests/
+packages/auto-mas-maafw-runner/tests/
+packages/auto-mas-maafw-project-update/tests/
+
+docs/notes/
+

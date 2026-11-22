@@ -1,0 +1,126 @@
+name: 发布 PyPI 包
+
+# 什么时候发（方案 §5）：
+# - 推到 main 且某个包的 pyproject.toml 版本号变了：发这个包（一次改了几个就发几个）。
+# - 包级标签 <发行包名>-v<版本>（如 auto-mas-maafw-runner-v0.1.1）：补发这一个包。
+# - 手动触发：选包、填版本。
+# 保险：仓库变量 PUBLISH_ENABLED 不是 'true' 时只构建不上传。
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 要发布的包
+        required: true
+        type: choice
+        options:
+          - auto-mas-maafw-native
+          - auto-mas-maafw-interface
+          - auto-mas-maafw-agent-env
+          - auto-mas-maafw-runner
+          - auto-mas-maafw-project-update
+      version:
+        description: 该包 pyproject.toml 里的版本号
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - packages/*/pyproject.toml
+    tags:
+      - "auto-mas-maafw-native-v*"
+      - "auto-mas-maafw-interface-v*"
+      - "auto-mas-maafw-agent-env-v*"
+      - "auto-mas-maafw-runner-v*"
+      - "auto-mas-maafw-project-update-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 选包、构建与校验
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.release.outputs.targets }}
+      has_targets: ${{ steps.release.outputs.has_targets }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - id: release
+        name: 算出要发布的包
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          INPUT_PACKAGE: ${{ inputs.package }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: >-
+          python scripts/release_targets.py
+          --event-name "$EVENT_NAME"
+          --ref "$RELEASE_REF"
+          --before-sha "$BEFORE_SHA"
+          --package "$INPUT_PACKAGE"
+          --version "$INPUT_VERSION"
+      - name: 标签必须打在 main 上
+        if: startsWith(github.ref, 'refs/tags/')
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: 安装构建工具
+        if: steps.release.outputs.has_targets == 'true'
+        run: python -m pip install build==1.6.1 twine==7.0.0
+      - name: 构建 wheel 和源码包
+        if: steps.release.outputs.has_targets == 'true'
+        env:
+          DISTS: ${{ steps.release.outputs.dists }}
+        run: |
+          for dist in $DISTS; do
+            python scripts/build_all.py "$dist" --outdir "dist/$dist"
+          done
+      - name: 校验包元数据
+        if: steps.release.outputs.has_targets == 'true'
+        run: python -m twine check --strict dist/*/*
+      - name: 提示发布开关
+        if: steps.release.outputs.has_targets == 'true' && vars.PUBLISH_ENABLED != 'true'
+        run: echo "::notice::仓库变量 PUBLISH_ENABLED 不是 'true'，这次只构建不上传"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.release.outputs.has_targets == 'true'
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: 发布 ${{ matrix.dist }}
+    needs: build
+    if: needs.build.outputs.has_targets == 'true' && vars.PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # 依赖顺序：库 → agent 环境 → 运行 / 项目更新；一个一个发
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.targets) }}
+    environment:
+      name: ${{ matrix.env }}
+      url: https://pypi.org/p/${{ matrix.dist }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-distributions
+          path: dist/
+      - name: 使用 Trusted Publishing 上传
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist/${{ matrix.dist }}/
+          skip-existing: true
