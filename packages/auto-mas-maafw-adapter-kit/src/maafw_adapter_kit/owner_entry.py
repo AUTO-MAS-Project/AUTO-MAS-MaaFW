@@ -144,7 +144,12 @@ class BuiltinConfigOwner:
 
     def list_managed(self) -> OwnerListing:
         host = self._host()
-        ready = bool(host.script_config_loaded_intact())
+        # 有托管因所属插件不可用而旁挂时为假（宿主的 managed_configs_loaded）；旧宿主没有这个出口时
+        # 退回旧名 script_config_loaded_intact
+        loaded = getattr(host, "managed_configs_loaded", None)
+        if loaded is None:
+            loaded = host.script_config_loaded_intact
+        ready = bool(loaded())
         items = tuple(
             _record(str(uid), config, order)
             for order, (uid, config) in enumerate(host.ScriptConfig.items())

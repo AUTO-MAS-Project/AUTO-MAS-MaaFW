@@ -35,10 +35,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
 from auto_mas_core.host.utils import get_logger
-from maafw_interface.interface.plan_rules import EMPTY_PLAN_RULES, MaaFWPlanRules
 
 if TYPE_CHECKING:
     from maafw_interface.interface.models import MaaFWInterface
+    from maafw_interface.interface.plan_rules import MaaFWPlanRules
 
 logger = get_logger("MFW 托管属主")
 
@@ -497,8 +497,16 @@ def owner_plan_rules(script_id: str) -> MaaFWPlanRules:
 
     entry = _owner_entry(script_id)
     if entry is None:
-        return EMPTY_PLAN_RULES
-    return getattr(entry, "plan_rules", EMPTY_PLAN_RULES)
+        return _empty_plan_rules()
+    rules = getattr(entry, "plan_rules", None)
+    return _empty_plan_rules() if rules is None else rules
+
+
+def _empty_plan_rules() -> MaaFWPlanRules:
+    # 解析库用到时才导入：注入加载信号时就会导入本模块，那时不该带起解析库。
+    from maafw_interface.interface.plan_rules import EMPTY_PLAN_RULES
+
+    return EMPTY_PLAN_RULES
 
 
 def owner_project_mismatch_hook(

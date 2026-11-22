@@ -95,13 +95,13 @@ class Plugin(ExtensionPlugin):
             # 宿主还在自己建维护（没切到让位分支）：两套维护同时清 data/mfw 可能误删
             logger.warning("宿主仍内置 MFW 维护，插件不再起维护，也不注入托管加载信号")
             return
-        owners.set_loaded_signal(Config.script_config_loaded_intact)
+        owners.set_loaded_signal(managed_configs_loaded)
         self._signal_injected = True
 
         from .host.maintenance import MaaFWMaintenanceService
 
         service = MaaFWMaintenanceService(
-            scripts_loaded_intact=Config.script_config_loaded_intact,
+            scripts_loaded_intact=managed_configs_loaded,
             retention_days=lambda: Config.setting.Function.HistoryRetentionTime,
             process_started_at=_process_started_at(),
         )
@@ -114,6 +114,19 @@ class Plugin(ExtensionPlugin):
         if self._signal_injected:
             owners.set_loaded_signal(None)
             self._signal_injected = False
+
+
+def managed_configs_loaded() -> bool:
+    """托管配置是否完整加载（按托管集合判「不在了」只有它为真时才算数）。
+
+    宿主的 ``Config.managed_configs_loaded()`` 在有托管因所属插件不可用而旁挂时为假；它是瞬时值，
+    每次现取。没有这个出口的旧宿主退回 ``script_config_loaded_intact``（不认旁挂）。
+    """
+
+    probe = getattr(Config, "managed_configs_loaded", None)
+    if probe is None:
+        probe = Config.script_config_loaded_intact
+    return bool(probe())
 
 
 def _process_started_at() -> float:
@@ -130,7 +143,7 @@ async def _maintenance_loop(service: Any) -> None:
 
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _LOADED_WAIT_SECONDS
-    while not Config.script_config_loaded_intact():
+    while not managed_configs_loaded():
         if loop.time() >= deadline:
             logger.warning("托管配置 10 分钟内没有完整加载，跳过这一轮 MFW 启动期维护")
             break
