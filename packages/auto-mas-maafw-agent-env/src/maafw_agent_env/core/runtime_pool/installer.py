@@ -26,6 +26,12 @@ from maafw_native.architecture import (
     runtime_identity_architecture,
     supported_architecture_target,
 )
+from maafw_native.subprocess_env import (
+    is_package_index_offline as is_package_index_offline,
+)
+from maafw_native.subprocess_env import (
+    resolve_package_index_candidates as resolve_package_index_candidates,
+)
 from ._shared import mask_url_credentials, output_tail
 from .host_environment import strip_host_python_environment
 from .identity import (
@@ -233,33 +239,9 @@ def _build_ordered_candidates(*groups: Sequence[str | None]) -> list[str]:
     return ordered
 
 
-def resolve_package_index_candidates() -> list[str] | None:
-    """解析 Python 包索引的有序候选列表，供调用方按序重试。
-
-    优先级：单值 ``AUTO_MAS_UV_INDEX_URL``（若设置，作为用户显式首选）在前，
-    随后追加 Runtime 经 ``AUTO_MAS_MIRROR_PACKAGE_INDEX`` 注入的 ``;`` 分隔有序
-    列表；跨两者保序去重。全部为空时返回 ``None``，调用方应沿用 uv 默认行为。
-    """
-
-    ordered = _build_ordered_candidates(
-        [os.environ.get(AUTO_MAS_UV_INDEX_URL_ENV)],
-        _split_semicolon_list(os.environ.get(AUTO_MAS_MIRROR_PACKAGE_INDEX_ENV)),
-    )
-    return ordered or None
-
-
-def is_package_index_offline() -> bool:
-    """判断 Runtime 是否要求依赖安装完全离线。
-
-    契约：Runtime 以 ``--offline`` 运行时注入 ``AUTO_MAS_MIRROR_PACKAGE_INDEX=``
-    （键存在、值为空串），表示「不要联网」。必须区分「键不存在」（未受监督或
-    旧版 Runtime，行为不变）与「键存在但为空」（离线）；只有后者返回 ``True``。
-    ``resolve_package_index_candidates()`` 会把空串和「键不存在」一样解析成
-    ``None``，单看它无法分辨这两种情况，所以离线判据单独放在这里。
-    """
-
-    raw = os.environ.get(AUTO_MAS_MIRROR_PACKAGE_INDEX_ENV)
-    return raw is not None and not raw.strip()
+# Python 包索引的两个读法（``resolve_package_index_candidates`` / ``is_package_index_offline``）
+# 搬进了原生库识别库 ``maafw_native.subprocess_env``，本模块顶部再导出：安装器与项目更新的预检门
+# 读同一份，不漂。
 
 
 def _resolve_python_mirror_candidates(

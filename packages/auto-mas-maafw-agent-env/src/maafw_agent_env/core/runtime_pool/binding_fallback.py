@@ -10,7 +10,8 @@ maafw 不再进 venv 一起拿掉了）。
 
 约束：
 - 本模块在 ``runtime_pool`` 包内，而 worker 子进程的导入闭包包含整个包、池 venv 里只有
-  ``BASE_RUNTIME_PACKAGES``——**模块级 import 只允许标准库 + packaging**，HTTP 用
+  ``BASE_RUNTIME_PACKAGES``——**模块级 import 只允许标准库 + packaging**（外加同样只用这两样、
+  worker 导入路径里本来就有的原生库识别库 ``maafw_native``），HTTP 用
   ``urllib``，代理串由调用方传入（不读 ``Config``）。
 - binding 目录必须带 ``maa/bin/.auto-mas-no-bundled-dll`` 占位文件：``maa/__init__.py`` 在
   import 时就 ``Library.open(<maa>/bin)``，目录不存在直接 ``FileNotFoundError``。
@@ -38,7 +39,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from packaging.version import InvalidVersion, Version
+from maafw_native.versions import pep440_to_maafw_tag as pep440_to_maafw_tag
 
 logger = logging.getLogger("automas.maafw.runtime_pool.binding_fallback")
 
@@ -76,31 +77,8 @@ class BindingSourceInfo:
     requires_python: str
 
 
-def pep440_to_maafw_tag(version_text: str) -> str | None:
-    """把 requirement 里的 PEP 440 版本映射成 MaaFramework 的 git tag。
-
-    ``5.14.0b1`` → ``v5.14.0-beta.1``，``5.14.0a2`` → ``v5.14.0-alpha.2``，
-    ``5.14.0rc1`` → ``v5.14.0-rc.1``，``5.13.1`` → ``v5.13.1``。
-    post / dev / local 任一非空返回 ``None``：nightly 的 DLL 串形如
-    ``v5.13.1-post.6-ci.<id>``，PyPI 与 tag 都没有，兜底无从谈起。
-    MaaFramework 仓库里没有反向映射可抄（``pip_pack.py::set_toml_ver`` 只是把 CI 传入
-    的 tag 原样写进 pyproject），这里按 CI 的命名习惯正向推。
-    """
-
-    try:
-        version = Version(str(version_text).strip())
-    except InvalidVersion:
-        return None
-    if version.post is not None or version.dev is not None or version.local:
-        return None
-    base = ".".join(str(part) for part in version.release)
-    if version.pre is None:
-        return f"v{base}"
-    phase, number = version.pre
-    suffix = {"a": "alpha", "b": "beta", "rc": "rc"}.get(phase)
-    if suffix is None:
-        return None
-    return f"v{base}-{suffix}.{number}"
+# ``pep440_to_maafw_tag``（PEP 440 版本 → MaaFramework 的 git tag）搬进了原生库识别库
+# ``maafw_native.versions``（与别的版本换算同处，项目更新的预检门也用它），本模块顶部再导出。
 
 
 def source_archive_candidates(tag: str) -> tuple[str, ...]:
