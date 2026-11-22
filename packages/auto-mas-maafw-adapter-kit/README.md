@@ -8,7 +8,10 @@ AUTO-MAS 的 MFW 专项共用库：通用 MFW（`maafw_adapter`）、M9A（`m9a_
 
 | 模块 | 提供 |
 | --- | --- |
-| `maafw_adapter_kit.owner_entry` | `BuiltinConfigOwner`：专项在项目更新登记的托管属主入口（按确切类型认领托管、读写项目记录、导入锁），可带 `plan_rules`、`project_mismatch` |
+| `maafw_adapter_kit.owner_entry` | `BuiltinConfigOwner`：专项在项目更新登记的托管属主入口（按确切类型认领托管、读写项目记录、导入锁），可带 `plan_rules`、`project_mismatch`；属主服务新形：`record_payload`（托管记录的 JSON 字典）、`ConfigOwner`、`OwnerServiceMixin`、`owner_provides(<插件 id>)`、`write_or_raise` |
+| `maafw_adapter_kit.services` | 专项调三块服务插件：`ServiceSlot`、`ServiceClient`（`call` / `call_once` / `call_sync` / `call_threadsafe`）、`Reply` 与 `ServiceFailure`、`Operation`（长操作，被取消时按族收尾，`stop()` 同步）、`event_dispatcher`、`ProjectOpener` / `open_project`、`release_run_reservation`、操作名常量元组（`ADAPTER_REQUIRES` 等）、各请求构造函数 |
+| `maafw_adapter_kit.project_texts` | 三句良性跳过原文与 `BENIGN_SKIPS`、`describe_open_failure` |
+| `maafw_adapter_kit.attempt_ledger`、`run_record`、`run_report`、`run_messages`、`run_notices`、`run_verdict`、`signal_notice`、`proxy_quota`、`run_settings`、`telemetry_project`、`host_client`、`device_state` | 账号流程的记账、判定、文案、信号聚合、代理次数、运行设置与宿主 / 模拟器胶水，从运行积木搬来，口径不变 |
 | `maafw_adapter_kit.option_secrets` | 任务选项里密码字段（PI `password: true`）的加解密：`prepare_user_task_snapshot`（保存前双写全局选项并加密）、`open_task_snapshot`（建计划前在内存里解密）、`seal_task_snapshot`、`DPAPI_SECRET_OPENER`、`MaaFWSecretError`、`SECRET_PREFIX`、`is_sealed_secret`；取账号快照原值的 `user_task_snapshot`、`script_task_snapshots` |
 | `maafw_adapter_kit.user_update` | `prepare_user_update(script, user, *, data)`：账号保存前准备任务快照补丁（只做加密；专项自己的整理在调用前做） |
 | `maafw_adapter_kit.default_snapshot` | `fill_default_task_snapshots`：空任务队列按项目默认（预设或默认勾选）写回；`prepare_user_read`、`initialize_user`、`is_empty_task_snapshot` |
@@ -16,8 +19,8 @@ AUTO-MAS 的 MFW 专项共用库：通用 MFW（`maafw_adapter`）、M9A（`m9a_
 
 ## 依赖与导入
 
-- 各模块顶层只导入 `auto-mas-maafw-interface`，离开宿主也能导入。
-- 宿主 SDK（`auto_mas_core`：日志、DPAPI、`Config`、公共归档模块）和项目更新插件（`maafw_project_update.host.owners` 的属主协议数据类、`host.embedded_project` 的视图路径）都在函数体内取，所以真正调用时要在宿主里，且项目更新已装。
+- 各模块顶层只导入 `auto-mas-maafw-interface` 与 `auto-mas-maafw-native`，离开宿主也能导入；不导入三块服务插件，跨插件的事都经 `services` 走服务调用。
+- 宿主 SDK（`auto_mas_core`：日志、DPAPI、`Config`、公共归档模块、进程作用域、通知）在函数体内取（`signal_notice`、`telemetry_project` 照搬来前的样子，还有两处直接取宿主 `app`，等 SDK 补门面）；只有旧的 `BuiltinConfigOwner` 还在函数体内取项目更新插件（`maafw_project_update.host.owners` 的属主协议数据类）。真正调用时要在宿主里。
 - `auto-mas-core` 由宿主提供，不在 PyPI 上；和插件包一样写 `>=5.9.0b1,<6`。
 
 ## 开发
