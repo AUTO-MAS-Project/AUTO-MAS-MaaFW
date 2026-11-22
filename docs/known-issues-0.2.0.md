@@ -4,7 +4,7 @@
 
 0.1.0 的口径是「主路径能装能跑就交，已知问题列清单，以后再消」。这份清单合并了六个包（本仓库五个包，加上 `AUTO-MAS-MaaFW-Adapter`、`AUTO-MAS-M9A-Adapter`、`AUTO-MAS-MSS-Adapter` 三个专项）实现时交回的已知问题和偏差，以及拆分契约文档（「MFW 插件包拆分与契约」，下称「契约」）§8 的取舍，去了重。
 
-先说最要紧的：六个包**已经在联调宿主里装上、启用，三种类型都走到了「导入项目 → 准备 agent 环境」**（2026-11-22，见下面「宿主联调」一节），但**还没有真跑过一轮**（没派发运行、没拉游戏和模拟器）。下面「验证状况」一节写清了做过什么。
+先说最要紧的：六个包**已经在联调宿主里装上、启用，三种类型都走到了「导入项目 → 准备 agent 环境」**（2026-11-22，见下面「宿主联调」一节），但**还没有真跑过一轮**（没派发运行、没拉游戏和模拟器）。下面「验证状况」一节写清了做过什么。之后在宿主迁移分支上用本地源码接入，三种托管各用空白窗口程序真跑了一轮，并拿正式版配置的副本演练了升级，见「迁移分支联调（2026-11-22）」。
 
 ## 0.2 的验证状况
 
@@ -17,6 +17,21 @@
 | 改坏验证：0.2 的每处改动故意改坏，跑对应测试 | 17 处全部变红 |
 
 没做的：在宿主里装起来跑一轮（派发运行、真机）；三个专项接钩子后的联调。
+
+## 迁移分支联调（2026-11-22）
+
+宿主迁移分支 `feat/mfw-plugin-migration-20261121`（`6bd32b3a5`，内置 MFW 族已删）上，六个插件用本地源码接入（本仓库 `eef753e`、三个专项各自 master 的 HEAD），三块库用本地 `uv build` 的 wheel，干净数据起后端。做法和结果见宿主仓库 `docs/mfw-plugins-local-integration.md`。
+
+| 做过的 | 结果 |
+| --- | --- |
+| 核对装的是哪一份 | 六个插件 `source=local`；`plugins\pypi\site-packages` 里三块库逐文件与源码一致（`maafw_native` 的 `project_runtime.py` 与 PyPI 0.1.0 不同，比对能区分），uv 这次拿的是本地 wheel |
+| 启用 | 只启用三个专项，三块积木连带启用，日志无 WARNING；`/api/scripts/types` 有 MaaFW、M9A、MSS |
+| 三种托管：新建、导入、预览、新建账号、复制、删除、准备环境 | 全部 200。新账号默认队列：MaaFW 14 个、M9A 9 个、MSS 空（项目没有 `default_check`，见第 36 条）；复制托管当场带副本；删托管当场删副本；准备环境 MaaFW 走 isolated_venv，M9A、MSS 走 project_python |
+| 密码字段 | 自造带 `password: true` 输入项的项目副本，写账号快照后盘上是 `mas-dpapi:` 密文，搜不到明文，接口读回也是密文 |
+| 真跑（自编注册 `UnityWndClass` 的空白窗口程序当游戏，`win_process` 游戏目标，Win32 控制器、PostMessage、由 MAS 启动游戏、单任务时限 1 分钟、次数 1、自动更新关） | 三种各一轮，都在 1–2 分钟内结束：拉起假程序 → worker（本地源码布局，`-m maafw_runner.core.runner.worker`）→ 连控制器 → 起 agent → 任务超时（MaaFW）或认不出画面失败（M9A、MSS）→「已关闭本次由 MAS 启动的游戏」→ 假程序、worker、agent 都退出，游戏目标占用清空 |
+| 存量升级演练（正式版配置只读副本，没拷 data，不派发） | `legacy-maafw-plugin/scripts.yaml` 与原件逐字节相同；托管、账号、队列引用、定时项、计划表全部原样；与删内置实现之前的宿主（`b8351bf0f`）对同一副本升级的结果相比，只多出插件配置类自带的小写 `info`、`custom_webhooks`、`notify` 键；再起一次文件不变 |
+
+没做的：桌面分身（第 16 条）、M9A 登录、MSS 活动期判定的真实分支、`/maafw/update` 的 apply、外壳配置导入（第 17 条）、模拟器和 ADB 控制器。
 
 ## 0.1.0 时的验证状况
 
@@ -78,7 +93,7 @@
 | 19 | 项目更新：风味分支删除后的行为变化 | 没有 `scriptId` 的预览（新建托管对话框）一律用空规则表（原来按项目认领的风味取，例如 M9A）；专项项目种类不符时拒收原文改由属主给，识别出错的 warning 文案改了；多了 `owners.owner_project_mismatch_hook` | 新建 M9A 托管时的预览少了 M9A 规则表 | 预览按项目内容问各属主认领（0.2） |
 | 22 | 代码放置（契约 §8 第 10、11、12、17 条） | glue 五个模块已搬进专项共用库 `auto-mas-maafw-adapter-kit`（`bbb895a`）。还剩：`game_package.py` 在 runner 和项目更新各一份；`agent-env/prepare` 端点在项目更新；外壳配置导入的 3 个端点在通用 MFW 专项 | 两份 `game_package` 要手动同步；只装 M9A / MSS 的用户没有外壳导入 | `game_package` 并进解析库；端点拆分（契约 §8） |
 | 23 | 长调用（契约 §8 第 4 条） | `agent-env/prepare`、`update/job` 等端点仍是长等，没改成「开始 + 查询」。0.2 起运行积木、项目更新实现了 `teardown_blockers`：有运行在途、项目在更新、项目目录被运行 / 导入 / 准备环境占着时，宿主整体拒绝停用、重载、卸载（`89bab4e`、`224b7a1`），不会再拆到一半 | 宿主先关调用准入、等在途调用结束才问 `teardown_blockers`，长调用期间点停用仍要等它结束；项目更新的拒绝也会被维护期间一闪而过的视图预约触发，重试即可 | 0.2 之后改成「开始 + 查询」 |
-| 24 | worker 的 `PYTHONPATH`（契约 §8 第 1 条） | 发行包布局下是整个 `plugins/pypi/site-packages`；本地源码布局（四个包各在自己的 `src`）没实测，只测了 `--target` 目录布局 | 别的插件的依赖可能被 worker 导入到 | 改成方案 §6 的 `engine/<标识>/` |
+| 24 | worker 的 `PYTHONPATH`（契约 §8 第 1 条） | 发行包布局下是整个 `plugins/pypi/site-packages`；本地源码布局（四个包各在自己的 `src`）2026-11-22 在迁移分支宿主上真跑过三轮，worker 和 agent 都起来了，但 `PYTHONPATH` 的具体内容没看 | 别的插件的依赖可能被 worker 导入到 | 改成方案 §6 的 `engine/<标识>/` |
 | 25 | runner `core/runner/runner.py`、`worker.py` | 删掉了脚本方式运行时的裸名导入回退（`except ImportError: from x import …`、`__package__` 为空的分支） | 只能 `-m maafw_runner.core.runner.worker` 起 worker（plan_run 一直这么起） | 不用消 |
 | 26 | 惰性 logger（agent_env `host/_logging.py`、runner `host/_sdk.py`） | 首次写日志才经 SDK 取宿主 logger，代理只转发属性 | 对它做 `isinstance(…, loguru.Logger)` 或调 dunder 方法会不一样（包内没有这种用法） | SDK 不依赖宿主后改回直接取 |
 | 27 | 建计划时的客户端版本 | 解析库不再自己读 `res/version.json`，`PI_CLIENT_VERSION` 由调用方传：通用 MFW、M9A 取 `Config.VERSION`，MSS 读宿主源码根的 `res/version.json`（两者现在是同一个值）。通用 MFW 原来没传，装配时补上 | 两种取法将来可能不一致 | 统一成 SDK 给的版本号 |
@@ -95,6 +110,8 @@
 | 40 | 项目更新依赖 agent 环境的新函数 | `clean_env_cache` 要 `prune_prepared_environments`（agent 环境 0.2 才有），版本号相同表达不出；导入不到时这一步跳过，缓存照旧只增不减 | 只影响缓存回收 | 升版本时项目更新对 agent 环境写 `>=0.2.0` |
 | 41 | Q1（脚本后任务抛异常时崩溃回调被调两次，`D:\MAS\code\fixq\Q1`） | 落在三个专项的 `account_run.final_task`，不在本仓库 | 账号状态、错误通知重复 | 专项那边照 fixq 的补丁删掉 `final_task` 里那段 `except` |
 | 42 | 属主登记后补跑维护（第 37 条的做法） | 只在第一个属主登记 10 秒后补跑一次；专项之间启用间隔超过 10 秒时，后到的属主不在这一轮里，它名下的老副本这轮不迁移（有视图记着它时第 20 条的保护会让清理整轮不删） | 那个属主名下的老副本到下次启动才迁移 | 等 SDK 有「全部插件启用完」的出口 |
+| 43 | 运行积木由 MAS 启动游戏（`DirectExe`）时的启动参数 | `host/desktop_game.py` 只用托管的 `Game.Arguments`；游戏目标（`win_process`）上的「启动参数」「工作目录」不读，那两项只在游戏管理里点「打开」时用。与内置时相同，不是迁移带来的 | 用户在游戏目标上填了启动参数，MFW 运行时不生效、也没有提示（联调时窗口标题因此没对上，报「游戏窗口在 60s 内未就绪」） | 定口径：要么运行积木合并游戏目标的参数，要么界面上说明以托管为准 |
+| 44 | 只有配置、没有副本时的启动维护 | 第 21 条的 `clean_env_cache` 按「托管完整加载 + 视图在不在」判断谁还在用；只恢复 `config` 不恢复 `data`（或 `data` 被挪走）时，所有视图都不在，`config\maafw_env_cache` 被整批回收（升级演练里回收了 12 份） | 缓存能重建，只是下次准备环境要重下；托管配置不受影响 | 不急；要的话视图缺失时不回收、记一条提示 |
 
 ## 已消
 
