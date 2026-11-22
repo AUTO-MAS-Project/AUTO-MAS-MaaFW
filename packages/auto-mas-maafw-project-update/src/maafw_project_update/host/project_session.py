@@ -88,7 +88,7 @@ from auto_mas_core.host.utils_common_process_scope import current_process_scope
 if TYPE_CHECKING:  # pragma: no cover
     from auto_mas_core.host.models_schema import DownloadRequest
     from maafw_project_update.host.update_session import UpdateProxy
-    from app.task.run_flow import PointState, RunStage
+    from auto_mas_core.host.task_run_flow import PointState, RunStage
 
 # 与管理器同一个名字：后端日志里这段流程的行照旧记在「MFW 内置运行」下
 logger = get_logger("MFW 内置运行")

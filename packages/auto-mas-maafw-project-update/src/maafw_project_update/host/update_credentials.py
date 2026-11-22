@@ -116,7 +116,7 @@ def _script_proxy_url(script_config: Any) -> str | None:
 
     # ``app.core.config.manager`` 会拉起整份全局配置，接缝层按需导入即可，
     # 也避免和 ``app.models.config`` 的加载顺序纠缠。
-    from app.core.config.manager import normalize_proxy_address
+    from auto_mas_core.host.core_config_manager import normalize_proxy_address
 
     return normalize_proxy_address(_read_text(script_config, "Update", "ProxyAddress"))
 

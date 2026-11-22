@@ -52,12 +52,20 @@ from urllib.parse import urlsplit
 import httpx
 import json5
 
-from app.utils.common.zip_range import (
-    HealSkip,
-    RangeHTTPReader,
-    RangeReadCancelled,
-    format_size,
-)
+try:
+    from auto_mas_core.host.utils_common_zip_range import (
+        HealSkip,
+        RangeHTTPReader,
+        RangeReadCancelled,
+        format_size,
+    )
+except ImportError:  # 宿主的 SDK 还没有这个出口（迁移分支合入 SDK 第三组之前）
+    from app.utils.common.zip_range import (
+        HealSkip,
+        RangeHTTPReader,
+        RangeReadCancelled,
+        format_size,
+    )
 
 from .apply import _EntryBoundary
 from .contracts import (

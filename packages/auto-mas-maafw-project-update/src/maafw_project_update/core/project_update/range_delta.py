@@ -34,7 +34,10 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from app.utils.common.zip_range import RangeSpeedGuard
+try:
+    from auto_mas_core.host.utils_common_zip_range import RangeSpeedGuard
+except ImportError:  # 宿主的 SDK 还没有这个出口（迁移分支合入 SDK 第三组之前）
+    from app.utils.common.zip_range import RangeSpeedGuard
 
 from .apply import _EntryBoundary, _zip_member_parts
 from .blob_store import place_fresh
