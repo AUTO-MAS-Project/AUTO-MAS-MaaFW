@@ -46,7 +46,7 @@ import json
 import os
 import sys
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -262,9 +262,43 @@ def discard_prepared_environment(project_path: str | Path) -> None:
         logger.debug(f"MFW 运行环境缓存清理失败：{exc}")
 
 
+def prune_prepared_environments(keep_project_paths: Iterable[str | Path]) -> int:
+    """删掉不属于 ``keep_project_paths`` 的缓存，返回删了几份。
+
+    缓存原先只增不减：删托管、项目换目录、升级换了视图后旧文件一直留着。调用方（项目更新的启动期
+    维护）只在托管完整加载、属主都答上来时给出权威集合；集合外的、格式版本过期的、读不出来的都删。
+    缓存不是正确性的一部分，删多了只是下次多准备一次。
+    """
+
+    root = _cache_root()
+    if not root.is_dir():
+        return 0
+    keep = {_normalize_project_path(path) for path in keep_project_paths}
+    removed = 0
+    for path in root.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - 坏文件就当过期
+            payload = None
+        if (
+            isinstance(payload, Mapping)
+            and payload.get("version") == CACHE_FORMAT_VERSION
+            and payload.get("projectPath") in keep
+        ):
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug(f"MFW 运行环境缓存清理失败：{path} - {exc}")
+            continue
+        removed += 1
+    return removed
+
+
 __all__ = [
     "CACHE_FORMAT_VERSION",
     "discard_prepared_environment",
+    "prune_prepared_environments",
     "has_prepared_environment",
     "load_prepared_environment",
     "store_prepared_environment",
