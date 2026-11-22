@@ -22,7 +22,7 @@ from .api.routes import api_router as _api_router
 from .host import owners
 
 PACKAGE_NAME = "auto-mas-maafw-project-update"
-PACKAGE_VERSION = "0.1.0"
+PACKAGE_VERSION = "0.2.0"
 
 # 联调保护：设为 1 时插件不跑任何维护清理，也不注入「托管完整加载」信号（据此判断「不在了」的
 # 清理因此一律跳过）。

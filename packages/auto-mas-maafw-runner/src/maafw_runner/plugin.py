@@ -14,7 +14,7 @@ from typing import Any
 from auto_mas_core import ExtensionPlugin
 
 PACKAGE_NAME = "auto-mas-maafw-runner"
-PACKAGE_VERSION = "0.1.0"
+PACKAGE_VERSION = "0.2.0"
 SERVICE_NAME = "maafw.runner.v1"
 
 

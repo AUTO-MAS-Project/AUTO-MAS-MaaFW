@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-mas-maafw-agent-env"
-version = "0.1.0"
+version = "0.2.0"
 description = "准备 MFW 项目 agent 的 Python 环境与运行池"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -14,8 +14,8 @@ authors = [{ name = "AUTO-MAS Team" }]
 keywords = ["auto-mas-plugin", "auto-mas-id:maafw_agent_env"]
 dependencies = [
     "auto-mas-core>=5.9.0b1,<6",
-    "auto-mas-maafw-interface>=0.1.0,<0.2",
-    "auto-mas-maafw-native>=0.1.0,<0.2",
+    "auto-mas-maafw-interface>=0.2.0,<0.3",
+    "auto-mas-maafw-native>=0.2.0,<0.3",
 ]
 
 [project.urls]

@@ -1,6 +1,6 @@
 # 更新日志
 
-## 未发布
+## [0.2.0] - 2026-11-22
 
 - 桌面分身里按窗口规则找窗口改用宿主通用动作 `list_windows`（匹配在本进程做）、查句柄改用 `window_in_session`，不再发 MFW 专用的 `maafw_windows`（同宿主迁移分支 da8cf41a8）。
 - 由 MAS 启动（DirectExe）的游戏收尾关闭时写一行账号日志，关不掉时记 warning。

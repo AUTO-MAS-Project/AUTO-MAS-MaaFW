@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 #: 发行名与版本，``version`` 操作原样返回。
 DISTRIBUTION = "auto-mas-maafw-agent-env"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 #: 本插件提供的服务名。
 SERVICE = "maafw.agent_env.v1"

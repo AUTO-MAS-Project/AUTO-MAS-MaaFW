@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-mas-maafw-project-update"
-version = "0.1.0"
+version = "0.2.0"
 description = "MFW 项目更新服务插件：项目副本、视图、导入更新与维护清理"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -14,9 +14,9 @@ authors = [{ name = "AUTO-MAS Team" }]
 keywords = ["auto-mas-plugin", "auto-mas-id:maafw_project_update"]
 dependencies = [
     "auto-mas-core>=5.9.0b1,<6",
-    "auto-mas-maafw-interface>=0.1.0,<0.2",
-    "auto-mas-maafw-native>=0.1.0,<0.2",
-    "auto-mas-maafw-agent-env>=0.1.0,<0.2",
+    "auto-mas-maafw-interface>=0.2.0,<0.3",
+    "auto-mas-maafw-native>=0.2.0,<0.3",
+    "auto-mas-maafw-agent-env>=0.2.0,<0.3",
 ]
 
 [project.urls]
