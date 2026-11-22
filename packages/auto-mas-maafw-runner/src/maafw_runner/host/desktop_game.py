@@ -48,8 +48,8 @@ from .device_config import (
 from .plan_run import MaaFWPlanRunLog, MaaFWPlanRunPoint, MaaFWPlanRunSink
 
 if TYPE_CHECKING:
-    from app.task.run_flow import PointState, RunStage
     from app.utils.common.game_resolution import UnityGameResolutionOverride
+    from auto_mas_core.host.task_run_flow import PointState, RunStage
 
 # 与任务类同一个名字：后端日志里这段流程的行照旧记在「MaaFW 插件自动代理」下
 logger = get_logger("MaaFW 插件自动代理")
@@ -156,7 +156,7 @@ class MaaFWDesktopGame:
     """一个账号这次运行的桌面游戏：开、等窗口、前置、关。"""
 
     def __init__(self, emit: MaaFWPlanRunSink, *, process: Any | None = None) -> None:
-        from app.task.client import ClientProcess
+        from auto_mas_core.host.task_client import ClientProcess
 
         self._emit = emit
         self.process = process if process is not None else ClientProcess()
@@ -792,10 +792,14 @@ def _is_process_path_running(executable_path: Path) -> bool:
 
 async def _open_launch_url(url: str) -> None:
     """用系统默认处理程序打开启动链接（Windows 上是 ShellExecute）。"""
-    from app.utils.common.process.session import desktop_process_target
+    from auto_mas_core.host.utils_common_process_session import (
+        desktop_process_target,
+    )
 
     if (desktop := desktop_process_target.get()) is not None:
-        from app.utils.windows.desktop_session.process_runner import open_in_desktop
+        from auto_mas_core.host.utils_windows_desktop_session_process_runner import (
+            open_in_desktop,
+        )
 
         await open_in_desktop(desktop, url)
         return
@@ -894,7 +898,10 @@ def _end_processes(
     结束前按创建时间再核一次：快照之后 pid 被别的进程复用了就不碰它（两边都不算）。
     已经自己退出的也不算失败。
     """
-    from app.utils.common.process.operations import managed_process, terminate_process
+    from auto_mas_core.host.utils_common_process_operations import (
+        managed_process,
+        terminate_process,
+    )
 
 
     started: dict[psutil.Process, _ProcessSnapshot] = {}

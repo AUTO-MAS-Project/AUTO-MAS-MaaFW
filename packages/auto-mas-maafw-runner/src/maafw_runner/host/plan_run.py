@@ -82,7 +82,7 @@ from .run_redaction import redact_secret_text, secret_byte_pairs
 from .worker_paths import worker_import_paths
 
 if TYPE_CHECKING:
-    from app.task.run_flow import PointState, RunStage
+    from auto_mas_core.host.task_run_flow import PointState, RunStage
 
 # 与任务类同一个名字：后端日志里这段流程的行照旧记在「MaaFW 插件自动代理」下
 logger = get_logger("MaaFW 插件自动代理")
@@ -512,7 +512,7 @@ class MaaFWPlanRun:
                 **request.extra_env,
             }
             if (desktop := request.desktop) is not None:
-                from app.utils.windows.desktop_session.process_runner import (
+                from auto_mas_core.host.utils_windows_desktop_session_process_runner import (
                     launch_desktop_process,
                 )
 

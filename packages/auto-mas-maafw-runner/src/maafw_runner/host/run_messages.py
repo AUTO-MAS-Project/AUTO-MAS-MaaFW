@@ -40,7 +40,7 @@ from maafw_runner.core.runner.run_events import (
 from maafw_runner.core.worker_protocol import SIGNAL_SCREENSHOT_KINDS
 
 if TYPE_CHECKING:  # pragma: no cover - 只给类型检查用
-    from app.task.run_flow import PointState
+    from auto_mas_core.host.task_run_flow import PointState
 
 _RUN_OVERVIEW_LOG_VALUE_LIMIT = 1200
 

@@ -103,7 +103,7 @@ async def workstation_lock_reason(
         if desktop is None:
             reason = await asyncio.to_thread(_utils_display.input_desktop_unavailable)
         else:
-            from app.utils.windows.desktop_session.process_runner import (
+            from auto_mas_core.host.utils_windows_desktop_session_process_runner import (
                 run_desktop_action,
             )
 

@@ -254,7 +254,7 @@ class MaaFWPretaskRunner:
             self._log(f"开始应用运行前设置: {display_name}")
             started_at = loop.time()
             if desktop is not None:
-                from app.utils.windows.desktop_session.process_runner import (
+                from auto_mas_core.host.utils_windows_desktop_session_process_runner import (
                     launch_desktop_process,
                 )
 
@@ -453,7 +453,10 @@ async def _kill_pretask_process(
     process: Any, append_log: Callable[[str], None], *, desktop: bool
 ) -> None:
     """结束运行前设置进程本身，以及它下面一路都是脚本解释器的后代。"""
-    from app.utils.common.process.operations import managed_process, terminate_process
+    from auto_mas_core.host.utils_common_process_operations import (
+        managed_process,
+        terminate_process,
+    )
 
 
     # 先记下要一起结束的脚本解释器后代（pretask 一死，按父子关系就查不到了）。只认

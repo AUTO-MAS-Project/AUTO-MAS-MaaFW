@@ -727,22 +727,42 @@ def _normalize_hwnd(value: Any) -> int:
 
 
 async def list_desktop_window_matches(controller: MaaFWController):
-    from app.task.desktop_session_worker import request_desktop_action
-    from app.utils.common.process.session import desktop_process_target
+    """桌面分身里匹配控制器窗口规则的窗口，每项 ``[句柄, 类名, 标题, pid]``。
+
+    分身进程不导入插件包，只经宿主通用的 ``list_windows`` 动作列出窗口（已滤掉失效句柄），
+    按窗口规则匹配在本进程用解析库做；结果与原先在分身里匹配的 ``maafw_windows`` 相同。
+    """
+    from auto_mas_core.host.task_desktop_session_worker import request_desktop_action
+    from auto_mas_core.host.utils_common_process_session import (
+        desktop_process_target,
+    )
 
     desktop = desktop_process_target.get()
     if desktop is None:
         raise RuntimeError("桌面分身会话未配置")
-    _, matches = await request_desktop_action(
-        desktop,
-        "maafw_windows",
-        {"controller": controller.model_dump_json(by_alias=True)},
+    _, rows = await request_desktop_action(desktop, "list_windows", {})
+    pids: dict[int, Any] = {}
+    windows: list[MaaFWWin32Window] = []
+    for row in rows or []:
+        hwnd = int(row[0])
+        pids.setdefault(hwnd, row[3])
+        windows.append(
+            MaaFWWin32Window(hWnd=hwnd, className=str(row[1]), windowName=str(row[2]))
+        )
+    matched = MaaFWWin32ControllerService().match_controller_windows(
+        controller.model_dump(mode="json", by_alias=True),
+        list_windows=lambda: windows,
     )
-    return matches
+    return [
+        [item.hWnd, item.className, item.windowName, pids[item.hWnd]]
+        for item in matched
+    ]
 
 
 async def match_windows_in_session(controller: MaaFWController):
-    from app.utils.common.process.session import desktop_process_target
+    from auto_mas_core.host.utils_common_process_session import (
+        desktop_process_target,
+    )
 
     if desktop_process_target.get() is None:
         return await asyncio.to_thread(match_controller_windows, controller)
@@ -757,15 +777,19 @@ async def resolve_window_handle(
 ) -> int:
     """要控制的窗口句柄：配置里填了句柄就用它（桌面分身里先确认它在分身内），否则按
     interface 的窗口规则匹配，取第一个。``configured_hwnd`` 是 ``Device.HWnd`` 的原值。"""
-    from app.utils.common.process.session import desktop_process_target
+    from auto_mas_core.host.utils_common_process_session import (
+        desktop_process_target,
+    )
 
     parsed_hwnd = optional_int(configured_hwnd)
     if parsed_hwnd:
         if (desktop := desktop_process_target.get()) is not None:
-            from app.task.desktop_session_worker import request_desktop_action
+            from auto_mas_core.host.task_desktop_session_worker import (
+                request_desktop_action,
+            )
 
             _, exists = await request_desktop_action(
-                desktop, "maafw_windows", {"hwnd": str(parsed_hwnd)}
+                desktop, "window_in_session", {"hwnd": str(parsed_hwnd)}
             )
             if not exists:
                 raise RuntimeError("配置的窗口句柄不在桌面分身内")

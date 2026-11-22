@@ -29,7 +29,10 @@ from ._sdk import get_logger
 
 if TYPE_CHECKING:
     from app.models.notification import NotificationImage, NotifyPayload
-    from app.models.notification.channel import DispatchResult, NotifyTarget
+    from auto_mas_core.host.models_notification_channel import (
+        DispatchResult,
+        NotifyTarget,
+    )
 
 logger = get_logger("MaaFW 信号通知")
 
