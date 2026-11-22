@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from maafw_interface.interface.loader import load_interface_model_cached
@@ -47,6 +46,7 @@ from maafw_interface.interface.task_config import (
 from maafw_interface.runner.pipeline_override import (
     SECRET_INPUTS_SNAPSHOT_KEY,
 )
+from maafw_native.layout import view_dir
 
 from ._logging import get_logger
 
@@ -319,9 +319,8 @@ def prepare_user_task_snapshot(
     快照里不会有新填的密码；视图恢复后下一次保存照常处理。
     """
 
-    from maafw_project_update.host.embedded_project import resolve_maafw_project_root
-
-    root = Path(resolve_maafw_project_root(script_id, script_config))
+    # 视图目录只由托管 ID 推出（项目更新 resolve_maafw_project_root 同一算法，也不看配置）
+    root = view_dir(script_id)
     if not root.is_dir():
         return snapshot
     try:
