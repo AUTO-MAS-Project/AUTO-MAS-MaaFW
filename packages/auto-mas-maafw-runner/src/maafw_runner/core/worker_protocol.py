@@ -99,16 +99,24 @@ JOB_EVENT_CHANNEL_KEY = "eventChannel"
 #: ``DETAIL_LOG_PREFIX``（带它的日志只进 ``.worker.log`` / 后端日志）定义在 ``log_redact``，
 #: agent 环境与项目更新也从那里取；这里照旧对外提供，宿主与 runner 的老写法不用改。
 
-#: 信号取值（``MaaFWRunResult.signal``）。worker 的 ``run_signal`` 与宿主的 ``signal_notice`` 都引这里。
-SERVER_MAINTENANCE = "server_maintenance"
-CLIENT_UPDATE_REQUIRED = "client_update_required"
-#: 信号证据截图文件名里的 kind。只用小写字母：问题包导出按
-#: ``<时分秒>.<kind>-<HHMMSS>-<任务>.png`` 收截图，kind 部分是 ``[a-z]+``，带连字符就收不进去。
-#: 宿主按这些 kind 认证据图（``run_messages.signal_evidence_shot``）。
-SIGNAL_SCREENSHOT_KINDS = {
-    SERVER_MAINTENANCE: "maintenance",
-    CLIENT_UPDATE_REQUIRED: "clientupdate",
-}
+#: 信号取值 ``SERVER_MAINTENANCE`` / ``CLIENT_UPDATE_REQUIRED`` 与信号证据截图的 kind 表
+#: ``SIGNAL_SCREENSHOT_KINDS`` 已搬进解析库 ``maafw_interface.runner.models``，这里照旧对外提供。
+#: 惰性再导出（PEP 562）：worker 在 ``prefer_active_venv_site_packages()`` 之前就导入本模块，
+#: 急着导入 ``runner.models`` 会把 pydantic 提前从共享依赖里加载进来。
+_LIBRARY_SIGNAL_NAMES = frozenset(
+    {"SERVER_MAINTENANCE", "CLIENT_UPDATE_REQUIRED", "SIGNAL_SCREENSHOT_KINDS"}
+)
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _LIBRARY_SIGNAL_NAMES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from maafw_interface.runner import models
+
+    value = getattr(models, name)
+    globals()[name] = value
+    return value
+
 
 # ---------------------------------------------------------------------------
 # 日志去向：进界面还是只进 .worker.log

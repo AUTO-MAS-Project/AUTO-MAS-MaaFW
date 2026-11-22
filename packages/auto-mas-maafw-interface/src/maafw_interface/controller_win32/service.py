@@ -6,12 +6,19 @@ from typing import Any, Callable, Iterable
 
 from pydantic import BaseModel
 
-from ..interface.models import MaaFWController
+from ..interface.models import MaaFWController, MaaFWInterface
 
 MAX_REGEX_PATTERN_LENGTH = 256
 MAX_REGEX_VALUE_LENGTH = 4096
 DANGEROUS_NESTED_QUANTIFIER_RE = re.compile(
     r"\([^)]*(?:[*+]|\{\d+(?:,\d*)?\})[^)]*\)(?:[*+]|\{\d+(?:,\d*)?\})"
+)
+
+# 托管页没有填窗口句柄的入口，提示不能让用户去找一个不存在的设置。
+WIN32_NO_WINDOW_RULES_MESSAGE = (
+    "该项目的这个 Win32 控制器没有声明窗口匹配规则（interface 里的 class_regex / "
+    "window_regex），MAS 无法确定要控制哪个窗口，为避免控制错窗口不运行；请换用项目的"
+    "其他控制器，或请项目方在 interface 里补上窗口匹配规则"
 )
 
 
@@ -115,6 +122,18 @@ def controller_has_window_rules(controller: MaaFWController) -> bool:
 
     class_regex, window_regex = _controller_window_regex(controller)
     return bool(class_regex or window_regex)
+
+
+def find_controller(
+    interface_model: MaaFWInterface, controller_name: str
+) -> MaaFWController:
+    controller = next(
+        (item for item in interface_model.controller if item.name == controller_name),
+        None,
+    )
+    if controller is None:
+        raise RuntimeError(f"未找到 controller: {controller_name}")
+    return controller
 
 
 def _controller_window_regex(

@@ -9,10 +9,12 @@ MaaFramework ProjectInterface（`interface.json`）的解析与运行计划库�
 | 模块 | 提供 |
 | --- | --- |
 | `maafw_interface.interface` | `load_interface_model`、`load_interface_model_cached`、`MaaFWInterfaceService`、interface 模型、快照归一化函数（`interface/__init__.py` 的 `__all__`）；子模块 `loader`、`models`、`preview`、`task_config`、`plan_rules`、`agent_command`、`agent_entry`、`password_values`、`host_path`、`service` |
-| `maafw_interface.runner` | 惰性导出计划模型与 `build_maafw_run_plan`、`MaaFWRunPlanError`；子模块 `run_plan`（建计划、选控制器与资源、默认快照）、`task_selection`（展开任务快照）、`plan_transforms`（周期与重试）、`pipeline_override`、`hotkey`、`models` |
-| `maafw_interface.controller_win32` | `MaaFWWin32ControllerService`、`MaaFWWin32Window`、`MaaFWWindowMatch`；`service.controller_has_window_rules` |
+| `maafw_interface.runner` | 惰性导出计划模型与 `build_maafw_run_plan`、`MaaFWRunPlanError`；子模块 `run_plan`（建计划、选控制器与资源、默认快照）、`task_selection`（展开任务快照）、`plan_transforms`（周期与重试）、`pipeline_override`、`hotkey`、`models`（含信号常量 `SERVER_MAINTENANCE`、`CLIENT_UPDATE_REQUIRED`、`SIGNAL_SCREENSHOT_KINDS`）、`run_events`（结构化运行记录事件）、`resource_failure`（资源包加载失败的说明）、`game_package`（推断安卓游戏包名） |
+| `maafw_interface.controller_win32` | `MaaFWWin32ControllerService`、`MaaFWWin32Window`、`MaaFWWindowMatch`；`service.controller_has_window_rules`、`service.find_controller`、`service.WIN32_NO_WINDOW_RULES_MESSAGE` |
 | `maafw_interface.embedded_labels` | `Labels`、`Translate`、`mxu_option_values`（宿主原私有名 `_Labels`、`_mxu_option_values`） |
 | `maafw_interface.log_redact` | `DETAIL_LOG_PREFIX`、`HOME_TOKEN`、`mask_home_path` 等 |
+| `maafw_interface.run_redaction` | 运行日志按值打码（`secret_log_variants`、`redact_secret_text` 等） |
+| `maafw_interface.service_calls` | MFW 一族跨插件服务调用的通用部分：调用方的起止轮询、取消收尾、忙重试，提供方的句柄表；只用标准库 |
 
 和宿主原代码不同的地方（其余一律照搬）：
 

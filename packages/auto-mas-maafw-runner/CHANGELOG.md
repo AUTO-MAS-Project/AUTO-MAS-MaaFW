@@ -3,6 +3,7 @@
 ## 未发布
 
 - 项目 pipeline 自己用 StopTask 停下的任务（如 M9A v4.15.0 回不了主界面时）照旧算成功、不触发重试，但任务日志不再写「任务完成」，改写「任务已被项目停止」；运行结果带 `projectStoppedTasks`，运行记录里这个任务的类别是 `project_stopped`，统计报告的逐任务时间线标「（被项目停止）」。判据是节点动作通知里的 `action_details.action`，用户停止、超时停止不受影响。
+- `core/runner/run_events.py` 与 `worker_protocol` 的三个信号常量（`SERVER_MAINTENANCE`、`CLIENT_UPDATE_REQUIRED`、`SIGNAL_SCREENSHOT_KINDS`）的权威一份搬进解析库（`maafw_interface.runner.run_events`、`maafw_interface.runner.models`），原位置原样再导出，导入写法不变；信号常量是惰性再导出，worker 导入 `worker_protocol` 时照旧不带进 pydantic。要带这两个模块的解析库。
 
 ## [0.2.0] - 2026-11-22
 

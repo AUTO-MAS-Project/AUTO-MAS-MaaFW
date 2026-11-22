@@ -225,6 +225,17 @@ def _resolve_interface_path(base_dir: Path) -> Path:
     raise MaaFWInterfaceLoadError("请设置包含 interface.json 的 MaaFW 项目目录")
 
 
+def has_interface_file(copy_dir: Path) -> bool:
+    """目录里有没有 ``interface.json`` / ``interface.jsonc``（文件，不认同名目录）。
+
+    项目更新判断视图健不健康（``embedded_project.copy_is_healthy``）与共用库读托管时都按它。
+    """
+
+    return (copy_dir / "interface.json").is_file() or (
+        copy_dir / "interface.jsonc"
+    ).is_file()
+
+
 def _resolve_import_path(import_path: str, base_dir: Path) -> Path:
     return _resolve_project_relative_path(
         base_dir,
