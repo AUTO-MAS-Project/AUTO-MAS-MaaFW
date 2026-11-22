@@ -31,3 +31,18 @@ class Plugin(ExtensionPlugin):
         if op == "version":
             return {"package": PACKAGE_NAME, "version": PACKAGE_VERSION}
         raise ValueError(f"未知操作: {op}")
+
+    async def teardown_blockers(self) -> list[str]:
+        """有计划还在跑（含借环境、起 worker 之前）时拒绝停用、重载、卸载。
+
+        宿主在拆整棵依赖树之前调；托管锁只挡住了经专项派发的运行，这里再兜一层，免得在途的 worker
+        和运行环境被拆到一半。
+        """
+
+        # 规则 L：plan_run 顶层导入 agent 环境积木，只在函数体内导入
+        from .host.plan_run import active_plan_runs
+
+        count = active_plan_runs()
+        if count:
+            return [f"MFW 运行积木还有 {count} 个运行没有结束，请先停止任务再操作"]
+        return []

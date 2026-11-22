@@ -248,6 +248,24 @@ class MaaFWPlanRunOutcome:
 # ---------------------------------------------------------------------------
 
 
+# 正在跑的计划数（`MaaFWPlanRun.run` 进出各记一次）：插件停用前据此拒绝（`teardown_blockers`）。
+_ACTIVE_RUNS = 0
+_ACTIVE_RUNS_LOCK = threading.Lock()
+
+
+def active_plan_runs() -> int:
+    """此刻还没结束的 :meth:MaaFWPlanRun.run 个数（含借环境、起 worker 之前的准备阶段）。"""
+
+    with _ACTIVE_RUNS_LOCK:
+        return _ACTIVE_RUNS
+
+
+def _track_run(delta: int) -> None:
+    global _ACTIVE_RUNS
+    with _ACTIVE_RUNS_LOCK:
+        _ACTIVE_RUNS += delta
+
+
 class MaaFWPlanRun:
     """一次「跑一份计划」。``run`` 只能调一次；``stop`` 随时可调（没有在跑的 worker 就什么都不做）。"""
 
@@ -292,6 +310,15 @@ class MaaFWPlanRun:
         # 截止时刻交给 worker：到点它自己停任务、截图、把已完成的任务带回来。
         # 宿主这层只在 worker 没停下时才强杀，那时既没有截图也没有进度。
         run_deadline_at = time.time() + timeout
+        _track_run(1)
+        try:
+            return await self._run_tracked(timeout, limit_minutes, run_deadline_at)
+        finally:
+            _track_run(-1)
+
+    async def _run_tracked(
+        self, timeout: float, limit_minutes: Any, run_deadline_at: float
+    ) -> MaaFWPlanRunOutcome:
         try:
             result = await asyncio.wait_for(
                 self._run_worker(run_deadline_at=run_deadline_at),
@@ -1411,6 +1438,7 @@ __all__ = [
     "MaaFWPlanRunStage",
     "MaaFWRunTimeoutError",
     "MaaFWTaskDeadlineExpired",
+    "active_plan_runs",
     "clean_framework_output",
     "decode_subprocess_output",
     "sweep_legacy_runner_jobs",
