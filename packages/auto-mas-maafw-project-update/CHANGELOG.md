@@ -10,6 +10,7 @@
 - 启动期维护因属主还没登记而跳过副本迁移时，属主登记后补跑一轮；维护新增一步回收运行环境确认缓存。
 - `zip_range`、`normalize_proxy_address` 改经 SDK 出口取（加载期用到的 `zip_range` 在旧宿主上退回宿主模块）。
 - 三个专项共用的 `glue/`（`owner_entry`、`option_secrets`、`user_update`、`default_snapshot`、`backup_archive`）搬进新库 `auto-mas-maafw-adapter-kit`，本包不再带它，也不留再导出。
+- 资源包核对任务登记进当前运行的进程作用域：运行被取消时宿主会等它收尾，不让它在项目预约放掉后继续写视图。
 
 ## [0.1.0] - 2026-11-22
 

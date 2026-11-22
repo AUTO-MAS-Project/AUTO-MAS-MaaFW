@@ -134,6 +134,12 @@ class MaaFWResourceRepair:
         # 核对 / 清理 / 切视图都在工作线程里改载荷与视图：用户这时点停止，得等它收尾再放预约
         # （release_run_reservation 会等这个任务），否则编辑页的导入、手动更新能同时动同一棵视图。
         self.task = task
+        # 登记进当前运行的进程作用域：运行被取消时宿主会等它收尾，不让工作线程在预约放掉后继续写视图。
+        from auto_mas_core.host.utils_common_process_scope import current_process_scope
+
+        scope = current_process_scope.get()
+        if scope is not None:
+            scope.retain_worker(task)
         try:
             outcome = await asyncio.shield(task)
         except asyncio.CancelledError:
