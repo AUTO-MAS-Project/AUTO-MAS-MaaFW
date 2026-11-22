@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布
+
+- 运行结果 `MaaFWRunResult` 加 `projectStoppedTasks`：完成的任务里被项目 pipeline 自己停下的；旧 worker 不带这个键时为空。
+
 ## 0.2.0
 
 - 代码与 0.1.0 相同，版本号随其余 MFW 包一起升到 0.2。

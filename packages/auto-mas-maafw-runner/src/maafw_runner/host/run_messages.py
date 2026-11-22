@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -178,6 +179,58 @@ def format_completed_task_labels(
         else {}
     )
     return [labels_by_name.get(task_name, task_name) for task_name in task_names]
+
+
+#: 被项目自己的 pipeline（StopTask）中途停下、照旧按成功结算的任务，逐任务列结果时的标注。
+PROJECT_STOPPED_NOTE = "被项目停止"
+
+
+def _project_stopped_flags(result: Any) -> list[bool]:
+    """``completedTasks`` 里每一项是不是被项目停下的（``projectStoppedTasks``，同名任务按个数认）；
+    旧结果没有这个字段时都不是。"""
+
+    stopped = Counter(getattr(result, "projectStoppedTasks", None) or ())
+    flags: list[bool] = []
+    for name in getattr(result, "completedTasks", None) or ():
+        flag = stopped[name] > 0
+        if flag:
+            stopped[name] -= 1
+        flags.append(flag)
+    return flags
+
+
+def result_task_labels(plan: MaaFWRunPlan | None, result: Any) -> list[str]:
+    """这次完成的任务的称呼（按完成先后）；被项目停下的后面带「（被项目停止）」。
+
+    进尝试记账的完成清单（统计报告没有运行记录时的退路就列它）。"""
+
+    names = list(getattr(result, "completedTasks", None) or ())
+    return [
+        f"{label}（{PROJECT_STOPPED_NOTE}）" if stopped else label
+        for label, stopped in zip(
+            format_completed_task_labels(plan, names),
+            _project_stopped_flags(result),
+            strict=True,
+        )
+    ]
+
+
+def completed_result_log_lines(plan: MaaFWRunPlan | None, result: Any) -> list[str]:
+    """一次成功的尝试在账号日志里的结果行。
+
+    平常是一行「MaaFW 任务完成: …」；有任务被项目停下时，那些任务另起一行
+    「MaaFW 任务已被项目停止: …」，全都被停下时只有这一行。"""
+
+    names = list(getattr(result, "completedTasks", None) or ())
+    flags = _project_stopped_flags(result)
+    labels = format_completed_task_labels(plan, names)
+    if not any(flags):
+        return ["MaaFW 任务完成: " + ", ".join(labels)]
+    finished = [label for label, stopped in zip(labels, flags) if not stopped]
+    halted = [label for label, stopped in zip(labels, flags) if stopped]
+    lines = ["MaaFW 任务完成: " + ", ".join(finished)] if finished else []
+    lines.append(f"MaaFW 任务已{PROJECT_STOPPED_NOTE}: " + ", ".join(halted))
+    return lines
 
 
 def format_run_overview_log(
@@ -361,11 +414,7 @@ def signal_attempt_facts(
     message = user_messages.get(signal, str(result.errorMessage or signal))
     # 证据图只认命中那个任务、kind 是信号那种的：前面任务普通失败的 failed 图不算。
     evidence = signal_evidence_shot(result)
-    labels = (
-        format_completed_task_labels(plan, result.completedTasks)
-        if plan is not None
-        else list(result.completedTasks)
-    )
+    labels = result_task_labels(plan, result)
     # 证据图只随信号通知发一次，不再进统计信息与代理结果汇总；前面任务的普通
     # 失败截图照常进。
     report_shots = [
@@ -422,8 +471,10 @@ def record_event_point(event: Any) -> tuple[str, PointState] | None:
 __all__ = [
     "MISSING_TASK_NOTICE_PREFIX",
     "MISSING_TASK_USER_RESULT",
+    "PROJECT_STOPPED_NOTE",
     "RETRY_SKIP_REASON",
     "MaaFWSignalFacts",
+    "completed_result_log_lines",
     "describe_failed_result",
     "failed_task_user_summary",
     "failure_reason_for_user",
@@ -433,6 +484,7 @@ __all__ = [
     "period_all_done_message",
     "record_event_point",
     "remaining_done_message",
+    "result_task_labels",
     "retry_skip_log_lines",
     "retry_skipped_tasks",
     "signal_attempt_facts",

@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布
+
+- 项目 pipeline 自己用 StopTask 停下的任务（如 M9A v4.15.0 回不了主界面时）照旧算成功、不触发重试，但任务日志不再写「任务完成」，改写「任务已被项目停止」；运行结果带 `projectStoppedTasks`，运行记录里这个任务的类别是 `project_stopped`，统计报告的逐任务时间线标「（被项目停止）」。判据是节点动作通知里的 `action_details.action`，用户停止、超时停止不受影响。
+
 ## [0.2.0] - 2026-11-22
 
 - 桌面分身里按窗口规则找窗口改用宿主通用动作 `list_windows`（匹配在本进程做）、查句柄改用 `window_in_session`，不再发 MFW 专用的 `maafw_windows`（同宿主迁移分支 da8cf41a8）。

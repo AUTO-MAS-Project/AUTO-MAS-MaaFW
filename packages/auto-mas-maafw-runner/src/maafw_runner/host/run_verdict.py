@@ -86,6 +86,8 @@ class MaaFWAttemptVerdict:
     - ``signal`` / ``maintenance``：命中的信号，以及它是不是停服维护（本次跳过）。
     - ``message`` / ``user_message``：异常时的账号日志文案与推送用的原文（整次运行超时有固定
       说法，``user_message`` 为 None）；运行结果的失败文案要读配置与原生报错，仍由调用方拼。
+    - ``project_stopped_tasks``：成功时完成的任务里被项目 pipeline 自己停下的（结果的
+      ``projectStoppedTasks``）。不改结局，只给调用方展示用。
     """
 
     outcome: MaaFWAttemptOutcome
@@ -98,6 +100,7 @@ class MaaFWAttemptVerdict:
     maintenance: bool = False
     message: str | None = None
     user_message: str | None = None
+    project_stopped_tasks: tuple[str, ...] = ()
 
 
 def is_environment_failure(message: str) -> bool:
@@ -171,7 +174,13 @@ def _judge_result(result: MaaFWRunResult) -> MaaFWAttemptVerdict:
             maintenance=result.signal == SERVER_MAINTENANCE,
         )
     if result.success:
-        return MaaFWAttemptVerdict(outcome=VERDICT_SUCCEEDED)
+        # 被项目停下的任务照旧算成功；解析库早于这个字段时取不到，当作没有。
+        return MaaFWAttemptVerdict(
+            outcome=VERDICT_SUCCEEDED,
+            project_stopped_tasks=tuple(
+                getattr(result, "projectStoppedTasks", None) or ()
+            ),
+        )
     category = result_failure_category(result)
     if result.resourceFailure is not None:
         # 资源包没能加载：资源文件一次尝试到下一次不会自己变，不重启游戏 / 模拟器；

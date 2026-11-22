@@ -51,6 +51,8 @@ CATEGORY_TASK_TIMEOUT = "task_timeout"  # 单任务时限
 CATEGORY_RUN_TIMEOUT = "run_timeout"  # 整次运行的时限（Run.RunTimeLimit）
 CATEGORY_LOOP_GUARD = "loop_guard"  # 原地打转
 CATEGORY_SCRIPT_STOPPED = "script_stopped"  # 项目自己 post_stop
+# 不是失败：结局仍是 succeeded，只说明任务是被项目 pipeline 的 StopTask 动作中途停下的。
+CATEGORY_PROJECT_STOPPED = "project_stopped"
 CATEGORY_USER_STOPPED = "user_stopped"
 CATEGORY_SIGNAL = "signal"  # 项目声明的信号节点（停服维护 / 需要更新客户端）
 CATEGORY_GAME_LAUNCH_FAILED = "game_launch_failed"  # start_app 失败
@@ -125,6 +127,7 @@ __all__ = [
     "CATEGORY_INIT_FAILED",
     "CATEGORY_LOOP_GUARD",
     "CATEGORY_PRETASK_FAILED",
+    "CATEGORY_PROJECT_STOPPED",
     "CATEGORY_RESOURCE_FAILURE",
     "CATEGORY_RUN_TIMEOUT",
     "CATEGORY_SCRIPT_STOPPED",

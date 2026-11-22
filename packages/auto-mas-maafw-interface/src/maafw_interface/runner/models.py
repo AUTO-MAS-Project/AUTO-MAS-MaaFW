@@ -141,6 +141,9 @@ class MaaFWRunResult(BaseModel):
     controllerName: str
     resourceName: str
     completedTasks: list[str] = Field(default_factory=list)
+    # completedTasks 里被项目自己的 pipeline（StopTask 动作）中途停下的任务名：MaaFramework 报
+    # 成功，照旧算完成、不触发重试，只是给人看时要标出来。旧 worker 不带这个键，等于都没有。
+    projectStoppedTasks: list[str] = Field(default_factory=list)
     failedTask: str | None = None
     errorMessage: str | None = None
     # 给用户看的完整失败摘要；诊断与环境故障判定仍使用 errorMessage。

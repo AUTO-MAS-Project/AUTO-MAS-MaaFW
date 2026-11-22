@@ -30,6 +30,7 @@ from maafw_runner.core.runner.run_events import (
     CATEGORY_INIT_FAILED,
     CATEGORY_LOOP_GUARD,
     CATEGORY_PRETASK_FAILED,
+    CATEGORY_PROJECT_STOPPED,
     CATEGORY_RESOURCE_FAILURE,
     CATEGORY_RUN_TIMEOUT,
     CATEGORY_SCRIPT_STOPPED,
@@ -54,6 +55,7 @@ from maafw_runner.core.runner.run_events import (
     STAGE_START_GATE,
 )
 
+from .run_messages import PROJECT_STOPPED_NOTE
 from .run_record import MaaFWAttemptRecord, MaaFWTaskRecord
 from .signal_notice import CLIENT_UPDATE_REQUIRED, SERVER_MAINTENANCE
 
@@ -313,6 +315,9 @@ def task_reason(task: MaaFWTaskRecord, attempt: MaaFWAttemptReport) -> str:
     """时间线里任务后面括号里的那句话；状态已经说清楚了就是空串（不加括号）。"""
 
     outcome = task.outcome
+    if outcome == OUTCOME_SUCCEEDED and task.category == CATEGORY_PROJECT_STOPPED:
+        # 照旧算成功，只标出是被项目 pipeline 自己中途停下的
+        return PROJECT_STOPPED_NOTE
     if outcome in (OUTCOME_SUCCEEDED, OUTCOME_SKIPPED):
         return ""
     category = task.category

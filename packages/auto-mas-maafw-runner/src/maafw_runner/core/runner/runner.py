@@ -126,6 +126,7 @@ from .run_events import (
     CATEGORY_AGENT_EXITED,
     CATEGORY_GAME_LAUNCH_FAILED,
     CATEGORY_LOOP_GUARD,
+    CATEGORY_PROJECT_STOPPED,
     CATEGORY_RUN_TIMEOUT,
     CATEGORY_SCRIPT_STOPPED,
     CATEGORY_SIGNAL,
@@ -215,6 +216,13 @@ FATAL_CONTROLLER_ACTIONS = frozenset({"start_app"})
 # post_stop 都会产生它。脚本侧（如 MaaEnd 的分辨率闸门）用自定义动作强停时，
 # 我们只能从这里知道「这一轮不是自己结束的」。
 MAAFW_POST_STOP_ENTRY = "MaaTaskerPostStop"
+# pipeline 里的 StopTask 动作（项目自己在节点上写的「到这里就停」）：只停当前任务，不经
+# Tasker::post_stop，任务照样以成功结束（6.0.0-beta.3 实测 Tasker.Task.Succeeded、
+# reason=cancelled）。节点动作通知（Node.Action.*）的 action_details.action 是动作类型，
+# 5.x 与 6.x 都带；通知在任务线程上同步发出，早于 job.wait() 返回。
+MAAFW_STOP_TASK_ACTION = "StopTask"
+# 被 StopTask 停下、按成功结算的任务在任务日志里的那一行（代替「任务完成」）。
+PROJECT_STOPPED_LOG_PREFIX = "任务已被项目停止: "
 # 信号节点命中后的说明（界面日志与结果 errorMessage）。证据截图文件名里的 kind 是
 # SIGNAL_SCREENSHOT_KINDS（worker_protocol：宿主按它认证据图）。
 SIGNAL_MESSAGES = {
@@ -1118,6 +1126,11 @@ class MaaFWRunner:
         # 单任务时限到点后发起停止的定时器线程（它在里面等停止 job）。
         self._task_deadline_stop_thread: threading.Thread | None = None
         self._completed_tasks: list[str] = []
+        # 完成的任务里被项目 pipeline 的 StopTask 中途停下的（随结果回传 projectStoppedTasks）。
+        self._project_stopped_tasks: list[str] = []
+        # 投递中的任务执行过 StopTask 动作时记下那个节点名（回调线程写、主线程在任务回来后取），
+        # 持 _signal_lock；每个任务投递前清掉。
+        self._project_stop_node: str | None = None
         # 本轮正在处理的任务名（每个任务开始时设）：异常收尾时据此报 failedTask。
         # 没进入任务循环（初始化、启动画面等待失败）时为 None，不把原因挂到某个任务上。
         self._current_task_name: str | None = None
@@ -1311,11 +1324,13 @@ class MaaFWRunner:
         self._task_deadline_stop_thread = None
         self._failure_screenshots = []
         self._completed_tasks = []
+        self._project_stopped_tasks = []
         self._current_task_name = None
         with self._signal_lock:
             self._signal_hit = None
             self._signal_task = None
             self._signal_stop_thread = None
+            self._project_stop_node = None
         with self._loop_guard_lock:
             self._loop_guard_hit = None
             self._loop_guard_stop_thread = None
@@ -1338,6 +1353,7 @@ class MaaFWRunner:
                     controllerName=self.plan.controllerName,
                     resourceName=self.plan.resourceName,
                     completedTasks=completed_tasks,
+                    projectStoppedTasks=list(self._project_stopped_tasks),
                     failedTask=self._signal_task,
                     errorMessage=SIGNAL_MESSAGES[signal],
                     failureScreenshots=self.failure_screenshots,
@@ -1365,6 +1381,7 @@ class MaaFWRunner:
                     controllerName=self.plan.controllerName,
                     resourceName=self.plan.resourceName,
                     completedTasks=completed_tasks,
+                    projectStoppedTasks=list(self._project_stopped_tasks),
                     failedTask=first_failed_task,
                     errorMessage=error_message,
                     userMessage=self._build_failed_tasks_user_message(),
@@ -1376,6 +1393,7 @@ class MaaFWRunner:
                 controllerName=self.plan.controllerName,
                 resourceName=self.plan.resourceName,
                 completedTasks=completed_tasks,
+                projectStoppedTasks=list(self._project_stopped_tasks),
             )
         except Exception as exc:
             self._close_task_record(exc)
@@ -1411,6 +1429,7 @@ class MaaFWRunner:
                 controllerName=self.plan.controllerName,
                 resourceName=self.plan.resourceName,
                 completedTasks=self._completed_task_names(),
+                projectStoppedTasks=list(self._project_stopped_tasks),
                 failedTask=failed_task,
                 errorMessage=str(exc),
                 userMessage=user_message,
@@ -3657,6 +3676,8 @@ class MaaFWRunner:
             with self._focus_lock:
                 self._focus_log_count = 0
             self._failed_controller_actions.clear()
+            with self._signal_lock:
+                self._project_stop_node = None
             # 上一个任务超时留下的标记要在投递前清掉：投递本身抛错时定时器还没起，
             # 不清的话这次投递失败会被当成「单任务超时」收尾。
             self._task_deadline_hit.clear()
@@ -3840,11 +3861,53 @@ class MaaFWRunner:
                 )
                 break
             completed_tasks.append(task.name)
-            self._mark_task_outcome(OUTCOME_SUCCEEDED)
-            self.send_log(f"任务完成: {display_name}")
+            # 我们自己的停止（用户、超时、打转、信号）和脚本侧 post_stop 上面都已分流；
+            # 走到这里还执行过 StopTask 的，是项目 pipeline 自己让它停的。照旧算完成，
+            # 只是不能说成「任务完成」。
+            project_stop_node = self._take_project_stop_node()
+            if project_stop_node is not None:
+                self._project_stopped_tasks.append(task.name)
+                self._mark_task_outcome(OUTCOME_SUCCEEDED, CATEGORY_PROJECT_STOPPED)
+                self._log_detail(
+                    f"{DETAIL_LOG_PREFIX}节点 {project_stop_node or '?'} 执行了 "
+                    f"{MAAFW_STOP_TASK_ACTION}，任务 {task.name} 被项目停止"
+                )
+                self.send_log(f"{PROJECT_STOPPED_LOG_PREFIX}{display_name}")
+            else:
+                self._mark_task_outcome(OUTCOME_SUCCEEDED)
+                self.send_log(f"任务完成: {display_name}")
             time.sleep(0.1)
         self._close_task_record()
         return completed_tasks
+
+    def _note_project_stop(self, message: str, details: Any) -> None:
+        """节点动作通知里认出 pipeline 的 StopTask：记下投递中的任务是被项目停下的。
+
+        只看结构化字段 ``action_details.action``，不看节点名与文案。动作开始的通知还不带
+        ``action_details``；结束时 5.x 发 Succeeded，6.x 发 Cancelled，都认。不比 task_id：
+        5.x 里 Context.run_task 起的子任务与主任务共用同一个停止标志，子任务里的 StopTask
+        同样停掉主任务，而子任务的通知带的是它自己的 task_id。任务已经回来之后晚到的通知
+        不算到下一个任务头上。
+        """
+
+        if not message.startswith("Node.Action.") or not isinstance(details, dict):
+            return
+        action_details = details.get("action_details")
+        if not isinstance(action_details, dict):
+            return
+        if action_details.get("action") != MAAFW_STOP_TASK_ACTION:
+            return
+        node = details.get("name") or action_details.get("name") or ""
+        with self._signal_lock:
+            if self._task_in_flight and self._project_stop_node is None:
+                self._project_stop_node = str(node)
+
+    def _take_project_stop_node(self) -> str | None:
+        """取走当前任务记下的 StopTask 节点名；没执行过 StopTask 返回 None。"""
+
+        with self._signal_lock:
+            node, self._project_stop_node = self._project_stop_node, None
+        return node
 
     def _set_task_in_flight(self, task_name: str | None) -> None:
         with self._signal_lock:
@@ -4058,6 +4121,14 @@ class MaaFWRunner:
         except Exception as exc:  # pragma: no cover - 同上，不能反噬任务
             with suppress(Exception):
                 self.send_log(f"处理 MaaFW 信号节点通知失败: {exc}")
+        try:
+            self._note_project_stop(message, details)
+        except Exception as exc:  # pragma: no cover - 同上，不能反噬任务
+            with suppress(Exception):
+                self._log_detail(
+                    f"{DETAIL_LOG_PREFIX}处理 StopTask 通知失败: {exc}",
+                    level=LEVEL_WARNING,
+                )
         if self._loop_guard is not None:
             try:
                 self._on_loop_guard_notification(message, details)
