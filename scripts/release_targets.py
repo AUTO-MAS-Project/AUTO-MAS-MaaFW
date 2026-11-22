@@ -28,6 +28,7 @@ ENVIRONMENTS = {
     "auto-mas-maafw-agent-env": "pypi-agent-env",
     "auto-mas-maafw-runner": "pypi-runner",
     "auto-mas-maafw-project-update": "pypi-project-update",
+    "auto-mas-maafw-adapter-kit": "pypi-adapter-kit",
 }
 ZERO_SHA = "0" * 40
 

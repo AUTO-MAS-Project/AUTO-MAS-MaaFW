@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: 五个包全部构建并校验
+    name: 六个包全部构建并校验
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -41,7 +41,8 @@ jobs:
                   raise SystemExit(f"{path.name} 带了测试文件：{bad[:5]}")
           PY
       - name: 不碰宿主的部分能单独导入
-        # 插件类与 host/ 下的模块要 SDK，SDK 自己要宿主，这里只查两块库和 worker 侧的 core/
+        # 插件类与 host/ 下的模块要 SDK，SDK 自己要宿主，这里只查两块库、worker 侧的 core/
+        # 和专项共用库（它把 SDK 与项目更新都放在函数体内取）
         run: |
           python -m venv .smoke
           .smoke/bin/python -m pip install --no-deps dist/*.whl
@@ -50,7 +51,7 @@ jobs:
             psutil packaging numpy strenum maaagentbinary "maafw==5.16.1"
           cd "$RUNNER_TEMP"
           "$GITHUB_WORKSPACE/.smoke/bin/python" -I "$GITHUB_WORKSPACE/scripts/smoke_import.py" \
-            maafw_interface maafw_native maafw_agent_env.core maafw_runner.core
+            maafw_interface maafw_native maafw_agent_env.core maafw_runner.core maafw_adapter_kit
       # 两块库的单元测试要用真实的 MaaFramework 项目当夹具，CI 上没有，只在本地跑。
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

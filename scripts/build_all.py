@@ -1,8 +1,8 @@
-"""构建仓库里五个包的 wheel 和 sdist。
+"""构建仓库里六个包的 wheel 和 sdist。
 
 用法::
 
-    python scripts/build_all.py                       # 五个包都打到 dist/
+    python scripts/build_all.py                       # 六个包都打到 dist/
     python scripts/build_all.py auto-mas-maafw-runner --outdir dist/runner   # 只打指定的包
 
 不带 ``--wheel`` / ``--sdist``：``python -m build`` 先打 sdist，再从解开的 sdist 打 wheel。
@@ -22,13 +22,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
-# 按依赖顺序：两块库在前，agent 环境在运行和项目更新之前
+# 按依赖顺序：两块库在前，agent 环境在运行和项目更新之前，专项共用库依赖项目更新、排最后
 PACKAGES = (
     "auto-mas-maafw-native",
     "auto-mas-maafw-interface",
     "auto-mas-maafw-agent-env",
     "auto-mas-maafw-runner",
     "auto-mas-maafw-project-update",
+    "auto-mas-maafw-adapter-kit",
 )
 
 

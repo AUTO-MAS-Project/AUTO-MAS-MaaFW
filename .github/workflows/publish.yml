@@ -19,6 +19,7 @@ on:
           - auto-mas-maafw-agent-env
           - auto-mas-maafw-runner
           - auto-mas-maafw-project-update
+          - auto-mas-maafw-adapter-kit
       version:
         description: 该包 pyproject.toml 里的版本号
         required: true
@@ -33,6 +34,7 @@ on:
       - "auto-mas-maafw-agent-env-v*"
       - "auto-mas-maafw-runner-v*"
       - "auto-mas-maafw-project-update-v*"
+      - "auto-mas-maafw-adapter-kit-v*"
 
 permissions:
   contents: read
@@ -104,7 +106,7 @@ jobs:
     if: needs.build.outputs.has_targets == 'true' && vars.PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     strategy:
-      # 依赖顺序：库 → agent 环境 → 运行 / 项目更新；一个一个发
+      # 依赖顺序：库 → agent 环境 → 运行 / 项目更新 → 专项共用库；一个一个发
       max-parallel: 1
       fail-fast: true
       matrix:

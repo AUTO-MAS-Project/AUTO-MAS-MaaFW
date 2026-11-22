@@ -1,10 +1,10 @@
 # AUTO-MAS-MaaFW
 
-AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 `app/task/MaaFW`）拆成五个可以单独发版的 Python 包。两块是普通库，三块是 AUTO-MAS 插件；通用 MFW、M9A、MSS 三个专项插件（各自的仓库 `AUTO-MAS-MaaFW-Adapter`、`AUTO-MAS-M9A-Adapter`、`AUTO-MAS-MSS-Adapter`）在它们之上运行。
+AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 `app/task/MaaFW`）拆成五个可以单独发版的 Python 包（两块是普通库，三块是 AUTO-MAS 插件），外加一个三个专项共用的库。通用 MFW、M9A、MSS 三个专项插件（各自的仓库 `AUTO-MAS-MaaFW-Adapter`、`AUTO-MAS-M9A-Adapter`、`AUTO-MAS-MSS-Adapter`）在它们之上运行。
 
 现在是 0.1.0，目标是先能联调：主路径能装、能跑，已知问题见 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)。
 
-## 五个包
+## 六个包
 
 | 目录 | 发行包 | 导入名 | 类型 | 做什么 |
 | --- | --- | --- | --- | --- |
@@ -12,7 +12,8 @@ AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 
 | `packages/auto-mas-maafw-native` | `auto-mas-maafw-native` | `maafw_native` | 库 | 识别项目自带的 MaaFramework 原生库版本与架构、`data/mfw` 目录布局 |
 | `packages/auto-mas-maafw-agent-env` | `auto-mas-maafw-agent-env` | `maafw_agent_env` | 插件（服务 `maafw.agent_env.v1`） | 运行池与项目 agent 的 Python 环境 |
 | `packages/auto-mas-maafw-runner` | `auto-mas-maafw-runner` | `maafw_runner` | 插件（服务 `maafw.runner.v1`） | 跑运行计划：worker 子进程、超时与打转保护、失败截图、运行前设置、设备与桌面游戏 |
-| `packages/auto-mas-maafw-project-update` | `auto-mas-maafw-project-update` | `maafw_project_update` | 插件（服务 `maafw.project.v1`、`maafw.project_update.v1`） | 项目副本、视图、导入与更新、维护清理、`/api/scripts/maafw/*` 端点、托管属主登记，以及三个专项共用的 `glue` |
+| `packages/auto-mas-maafw-project-update` | `auto-mas-maafw-project-update` | `maafw_project_update` | 插件（服务 `maafw.project.v1`、`maafw.project_update.v1`） | 项目副本、视图、导入与更新、维护清理、`/api/scripts/maafw/*` 端点、托管属主登记 |
+| `packages/auto-mas-maafw-adapter-kit` | `auto-mas-maafw-adapter-kit` | `maafw_adapter_kit` | 库（不进插件市场） | 三个专项共用、不属于任何积木的代码：托管属主入口、任务选项密码加解密、账号保存前准备、默认任务队列、配置恢复池 |
 
 每个包有自己的 `pyproject.toml`、`README.md`、`CHANGELOG.md`，版本号只写在各自的 `pyproject.toml` 里，各自发版。
 
@@ -25,7 +26,9 @@ maafw_interface   maafw_native          （库，互不依赖，只依赖 pydant
        maafw_agent_env                   （插件，requires 无）
           ▲         ▲
    maafw_runner   maafw_project_update   （插件，都 requires maafw.agent_env.v1）
-          ▲         ▲
+          ▲         ▲      ▲
+          │         │  maafw_adapter_kit （库，顶层只导入 maafw_interface；SDK 与项目更新在函数体内取）
+          │         │      ▲
    maafw_adapter / m9a_adapter / mss_adapter（专项插件，另仓）
 ```
 
@@ -41,27 +44,27 @@ maafw_interface   maafw_native          （库，互不依赖，只依赖 pydant
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install build twine
-.\.venv\Scripts\python.exe scripts\build_all.py          # 五个包的 wheel 和 sdist 都打到 dist\
+.\.venv\Scripts\python.exe scripts\build_all.py          # 六个包的 wheel 和 sdist 都打到 dist\
 .\.venv\Scripts\python.exe -m twine check --strict dist\*
 ```
 
 只打一个包：`scripts\build_all.py auto-mas-maafw-runner --outdir dist\runner`。
 
-不碰宿主的部分可以单独验导入（两块库和 worker 侧的 `core/`）：
+不碰宿主的部分可以单独验导入（两块库、worker 侧的 `core/` 和专项共用库）：
 
 ```powershell
 python -m venv .smoke
 .\.smoke\Scripts\python.exe -m pip install --no-deps (Get-ChildItem dist\*.whl)
 .\.smoke\Scripts\python.exe -m pip install pydantic json5 packaging
-.\.smoke\Scripts\python.exe -I scripts\smoke_import.py maafw_interface maafw_native maafw_agent_env.core maafw_runner.core
+.\.smoke\Scripts\python.exe -I scripts\smoke_import.py maafw_interface maafw_native maafw_agent_env.core maafw_runner.core maafw_adapter_kit
 ```
 
 插件类和 `host/` 下的模块在导入期要 SDK，而 SDK 自己在顶层导入宿主（`app`），所以只能在宿主环境里导入。本地联调的做法（把各包目录联接到联调宿主树的 `plugins\` 下）见拆分契约文档 §6。
 
 ## 发布
 
-- CI（`.github/workflows/ci.yml`）：每次推送把五个包都构建一遍，跑 `twine check --strict`、检查发行包不带测试、单独导入不碰宿主的部分、跑两块库的单元测试。
-- 发布（`.github/workflows/publish.yml`）：主分支上某个包 `pyproject.toml` 的版本号变了就发这个包；也可以打包级标签 `<发行包名>-v<版本>`（如 `auto-mas-maafw-runner-v0.1.1`）补发，或手动触发。走 PyPI Trusted Publishing，每个包一个发布环境：`pypi-interface`、`pypi-native`、`pypi-agent-env`、`pypi-runner`、`pypi-project-update`。
+- CI（`.github/workflows/ci.yml`）：每次推送把六个包都构建一遍，跑 `twine check --strict`、检查发行包不带测试、单独导入不碰宿主的部分、跑两块库的单元测试。
+- 发布（`.github/workflows/publish.yml`）：主分支上某个包 `pyproject.toml` 的版本号变了就发这个包；也可以打包级标签 `<发行包名>-v<版本>`（如 `auto-mas-maafw-runner-v0.1.1`）补发，或手动触发。走 PyPI Trusted Publishing，每个包一个发布环境：`pypi-interface`、`pypi-native`、`pypi-agent-env`、`pypi-runner`、`pypi-project-update`、`pypi-adapter-kit`。
 - 保险：仓库变量 `PUBLISH_ENABLED` 不是 `true` 时只构建不上传。
 
 ## 其它目录
