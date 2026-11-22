@@ -2,7 +2,7 @@
 
 AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 `app/task/MaaFW`）拆成五个可以单独发版的 Python 包（两块是普通库，三块是 AUTO-MAS 插件），外加一个三个专项共用的库。通用 MFW、M9A、MSS 三个专项插件（各自的仓库 `AUTO-MAS-MaaFW-Adapter`、`AUTO-MAS-M9A-Adapter`、`AUTO-MAS-MSS-Adapter`）在它们之上运行。
 
-现在是 0.1.0，目标是先能联调：主路径能装、能跑，已知问题见 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)。
+现在是 0.1.0，目标是先能联调：主路径能装、能跑，已知问题见 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)；main 上已是 0.2 的内容（版本号发布前再升），复核后的清单见 [`docs/known-issues-0.2.0.md`](docs/known-issues-0.2.0.md)。
 
 ## 六个包
 
