@@ -17,6 +17,11 @@ MFW 插件族的运行积木（插件标识 `maafw_runner`，服务 `maafw.runne
 - worker 以 `python -m maafw_runner.core.runner.worker` 启动，`PYTHONPATH` 为 binding 目录加上本包、`maafw_agent_env`、`maafw_interface`、`maafw_native` 四个包各自的父目录（`maafw_runner.host.worker_paths`）。
 - 依赖 `auto-mas-maafw-agent-env`（插件依赖 `maafw.agent_env.v1`）和两块库 `auto-mas-maafw-interface`、`auto-mas-maafw-native`。
 
+## 服务化（未发布）
+
+- 登记 `maafw.runner.v1.<操作>` 29 个服务操作（契约见 `contract.py`），旧的 `maafw.runner.v1` 分发服务与原有类、函数并存，三个专项逐步改成走服务。
+- 借还运行环境走 agent 环境的服务（`maafw.agent_env.v1.borrow_*`、`borrow_return`），`maafw_runner.host` 不再导入 `maafw_agent_env`；worker（`maafw_runner.core`）只经门面 `maafw_agent_env.core.worker_api` 导入，起 worker 前核对门面版本。worker 的 `PYTHONPATH` 里 agent 环境那一项由借环境结果的 `worker_paths` 带回。
+
 ## 开发
 
 本地联调时把本目录联接到联调宿主树的 `plugins\maafw_runner`。单元测试不随仓库提交。
