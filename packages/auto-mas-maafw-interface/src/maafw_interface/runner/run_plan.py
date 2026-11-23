@@ -1711,10 +1711,13 @@ def _build_pi_env(
 
 
 def _load_maafw_version() -> str:
+    # 发行包元数据的版本号有的自带 v（如 5.16.1 是 ``v5.16.1``、6.0.0b3 是 ``v6.0.0-beta.3``），
+    # 有的不带（如 ``5.13.0``），带了的不再加
     try:
-        return f"v{metadata.version('maafw')}"
+        version = metadata.version("maafw")
     except Exception:
         return ""
+    return version if version.startswith("v") else f"v{version}"
 
 
 def _load_i18n_mapping(
