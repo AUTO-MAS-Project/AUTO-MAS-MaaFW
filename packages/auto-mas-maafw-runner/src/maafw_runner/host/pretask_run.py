@@ -31,18 +31,17 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-from maafw_agent_env.core.runtime_pool.host_environment import (
-    strip_host_python_environment,
-)
 from maafw_interface.controller_win32.service import (
     controller_has_window_rules,
 )
 from maafw_interface.interface.host_path import path_without_host_venv
 from maafw_interface.interface.models import MaaFWInterface
+from maafw_interface.run_redaction import redact_secret_text
 from maafw_interface.runner.models import (
     MaaFWPretaskRunPlan,
     MaaFWRunPlan,
 )
+from maafw_native.subprocess_env import strip_host_python_environment
 
 from ._sdk import get_logger
 from .device_config import find_controller, match_windows_in_session, optional_int
@@ -54,7 +53,6 @@ from .plan_run import (
     decode_subprocess_output,
     terminate_process_snapshot,
 )
-from .run_redaction import redact_secret_text
 
 # 与任务类同一个名字：后端日志里这段流程的行照旧记在「MaaFW 插件自动代理」下
 logger = get_logger("MaaFW 插件自动代理")

@@ -47,8 +47,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from maafw_interface.run_redaction import redact_secret_bytes, secret_byte_pairs
+
 from ._sdk import get_logger
-from .run_redaction import redact_secret_bytes, secret_byte_pairs
 
 logger = get_logger("MFW 项目日志")
 

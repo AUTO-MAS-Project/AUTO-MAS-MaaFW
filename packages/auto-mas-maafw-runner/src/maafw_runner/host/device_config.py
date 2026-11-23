@@ -22,21 +22,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from maafw_interface.controller_win32.service import (
+    WIN32_NO_WINDOW_RULES_MESSAGE,
     MaaFWWin32ControllerService,
     MaaFWWin32Window,
     controller_has_window_rules,
+    find_controller,  # noqa: F401  再导出：专项照旧从本模块导入
 )
 from maafw_interface.interface.models import (
     MaaFWController,
-    MaaFWInterface,
 )
 from maafw_interface.interface.preview import (
     build_adb_emulator_extra_capabilities,
 )
+from maafw_interface.runner.game_package import resolve_game_package
 from maafw_interface.runner.models import MaaFWDeviceConfig, MaaFWRunPlan
 
 from ._sdk import get_logger
-from .game_package import resolve_game_package
 
 if TYPE_CHECKING:
     from app.models.emulator import DeviceInfo
@@ -98,12 +99,8 @@ _WIN32_INPUT_METHODS = {
     "Interception": 1 << 9,
     "AnchoredTouch": 1 << 10,
 }
-# 托管页没有填窗口句柄的入口，提示不能让用户去找一个不存在的设置。
-WIN32_NO_WINDOW_RULES_MESSAGE = (
-    "该项目的这个 Win32 控制器没有声明窗口匹配规则（interface 里的 class_regex / "
-    "window_regex），MAS 无法确定要控制哪个窗口，为避免控制错窗口不运行；请换用项目的"
-    "其他控制器，或请项目方在 interface 里补上窗口匹配规则"
-)
+# 无窗口规则文案与 find_controller 在解析库（maafw_interface.controller_win32.service），
+# 这里再导出：专项照旧可以从本模块导入（MFW 服务化实施方案 §3.2、§4）。
 
 TASK_START_GATE_DISK_QUIET = "disk_quiet"
 TASK_START_GATE_SCREEN = "screen"
@@ -672,18 +669,6 @@ def _has_input_text_command(config: dict[str, Any]) -> bool:
 # ---------------------------------------------------------------------------
 # Win32：窗口句柄、截图 / 鼠标 / 键盘方式
 # ---------------------------------------------------------------------------
-
-
-def find_controller(
-    interface_model: MaaFWInterface, controller_name: str
-) -> MaaFWController:
-    controller = next(
-        (item for item in interface_model.controller if item.name == controller_name),
-        None,
-    )
-    if controller is None:
-        raise RuntimeError(f"未找到 controller: {controller_name}")
-    return controller
 
 
 def match_controller_windows(controller: MaaFWController) -> list[Any]:

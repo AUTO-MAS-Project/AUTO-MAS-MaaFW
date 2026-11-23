@@ -37,28 +37,23 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import psutil
-from maafw_agent_env.core.runtime_pool.host_environment import (
-    subprocess_proxy_scope,
-)
-from maafw_agent_env.core.runtime_pool.installer import (
-    install_process_factory_scope,
-)
 from maafw_interface.interface.agent_command import MaaFWAgentCommandPlan
+from maafw_interface.run_redaction import redact_secret_text, secret_byte_pairs
 from maafw_interface.runner.models import (
     MaaFWDeviceConfig,
     MaaFWRunPlan,
     MaaFWRunResult,
 )
-
-from maafw_runner.core.runner.environment import (
-    MaaFWRunnerEnvironment,
-    worker_run_plan,
+from maafw_interface.runner.resource_failure import (
+    MAX_NATIVE_ERROR_LINES,
+    native_error_excerpt,
+    read_native_error_lines,
 )
+
 from maafw_runner.core.runner.run_events import (
     RUN_RECORD_EVENT_TYPE,
     STAGE_ENVIRONMENT,
 )
-from maafw_runner.core.runner.service import MaaFWRunnerService
 from maafw_runner.core.worker_protocol import (
     AUDIENCE_UI,
     UI_LOG_MAX_CHARS,
@@ -70,15 +65,17 @@ from maafw_runner.core.worker_protocol import (
     strip_ansi,
 )
 
+from . import agent_env_client
 from ._sdk import get_logger
 from .device_config import task_start_gate
-from .project_logs import copy_project_log_delta, snapshot_project_logs
-from .resource_failure import (
-    MAX_NATIVE_ERROR_LINES,
-    native_error_excerpt,
-    read_native_error_lines,
+from .environment import (
+    MaaFWRunnerEnvironment,
+    environment_from_borrow,
+    lease_fields,
+    worker_run_plan,
 )
-from .run_redaction import redact_secret_text, secret_byte_pairs
+from .project_logs import copy_project_log_delta, snapshot_project_logs
+from .runner_service import MaaFWRunnerService
 from .worker_paths import worker_import_paths
 
 if TYPE_CHECKING:
@@ -269,9 +266,18 @@ def _track_run(delta: int) -> None:
 class MaaFWPlanRun:
     """一次「跑一份计划」。``run`` 只能调一次；``stop`` 随时可调（没有在跑的 worker 就什么都不做）。"""
 
-    def __init__(self, request: MaaFWPlanRunRequest, emit: MaaFWPlanRunSink) -> None:
+    def __init__(
+        self,
+        request: MaaFWPlanRunRequest,
+        emit: MaaFWPlanRunSink,
+        *,
+        services: Any | None = None,
+    ) -> None:
         self._request = request
         self._emit = emit
+        #: 调 agent 环境服务借还运行环境用的解析器；服务操作 ``plan_start`` 传插件的
+        #: ``self.services``，旧路径不传、用插件启用时绑上的（``agent_env_client.bind``）。
+        self._services = services
         self._process: Any | None = None
         #: 已收集的附件；运行抛异常时也照样有（收尾时收）。
         self.attachments: list[MaaFWPlanRunAttachment] = []
@@ -367,7 +373,6 @@ class MaaFWPlanRun:
         project_path = request.project_path
 
         service = MaaFWRunnerService()
-        loop = asyncio.get_running_loop()
         runtime_pool_root = request.runtime_pool_root
         runtime_pool_id = str(request.runtime_pool_id or "").strip()
         if runtime_pool_root is None or not runtime_pool_id:
@@ -390,55 +395,61 @@ class MaaFWPlanRun:
             project_log_marks = {}
             emit_log(f"MaaFW 项目日志起点记录失败，本次按全部新写处理: {exc}")
 
-        def send_runner_log(message: str) -> None:
-            loop.call_soon_threadsafe(self._emit, MaaFWPlanRunLog(message))
+        resolver = self._services or agent_env_client.bound_resolver()
+        if resolver is None:
+            raise RuntimeError(agent_env_client.AGENT_ENV_UNAVAILABLE_MESSAGE)
+
+        async def release_environment(environment: MaaFWRunnerEnvironment) -> Any:
+            return await agent_env_client.return_environment(
+                resolver, lease_fields(environment)
+            )
 
         # 密码字段（PI v2.10.0）的原文会随 override 进原生日志与 worker 输出：复制、转发、
         # 摘录失败原因前都换成占位（协议要求不得把原文写进日志）。
         secrets = list(request.run_secrets)
         stdout_native_errors: list[str] = []
         self.native_errors = []
-        prepare_cancel_event = threading.Event()
-        # 与运行前更新 / 预检同一份解析（调用方算好）：托管级代理优先，留空跟随全局。
-        # 运行时装依赖也走它，否则「更新能走代理、真跑时装不上」。
-        proxy_url = request.proxy_url
-        process_scope = current_process_scope.get()
-
-        def _prepare_environment_with_proxy() -> MaaFWRunnerEnvironment:
-            # 代理作用域按线程登记，要在 to_thread 的目标函数体内进入：池的 uv /
-            # pip 子进程、以及这里派生出的 worker 环境（worker 内的 agent pip 与
-            # 项目 agent 再从它继承）都从 strip_host_python_environment 拿到代理变量。
-            with (
-                subprocess_proxy_scope(proxy_url),
-                install_process_factory_scope(
-                    process_scope.popen if process_scope is not None else None
+        # 借运行环境走 agent 环境的服务（borrow_*）：代理（与运行前更新 / 预检同一份解析，调用方
+        # 算好）随请求交过去，agent 环境在借环境作业里进代理作用域、把安装子进程登记进调用方的
+        # 进程作用域（作业读得到这次调用的 contextvars）；agent 命令计划由它按声明算（见 agent_plans）。
+        borrow = agent_env_client.EnvironmentBorrow(
+            resolver,
+            {
+                "project_path": str(project_path),
+                "runtime_pool_root": str(runtime_pool_root),
+                "runtime_pool_id": runtime_pool_id,
+                "lease_owner": request.lease_owner,
+                "lease_ttl_seconds": max(
+                    600, int(request.run_time_limit_minutes or 120) * 60 + 600
                 ),
-            ):
-                return service.prepare_environment(
-                    project_path,
-                    runtime_pool_root=runtime_pool_root,
-                    runtime_pool_id=runtime_pool_id,
-                    lease_owner=request.lease_owner,
-                    lease_ttl_seconds=max(
-                        600, int(request.run_time_limit_minutes or 120) * 60 + 600
-                    ),
-                    # 插件包：调用方不给就用四个包各自的父目录（worker 才导入得到它们）
-                    import_paths=list(request.import_paths or worker_import_paths()),
-                    send_log=send_runner_log,
-                    cancel_event=prepare_cancel_event,
-                    # agent 命令计划由 agent 环境在借环境时按声明算（见 agent_plans）
-                    agents=plan.declaredAgents,
-                )
-
-        prepare_environment_task = asyncio.create_task(
-            process_scope.run_update_worker(
-                _prepare_environment_with_proxy,
-                cancel=prepare_cancel_event.set,
-                release_cancelled=service.release_environment,
-            )
-            if process_scope is not None
-            else asyncio.to_thread(_prepare_environment_with_proxy)
+                "agents": [
+                    agent.model_dump(mode="json", by_alias=True)
+                    for agent in plan.declaredAgents
+                ],
+                "proxy_url": request.proxy_url,
+            },
+            on_log=emit_log,
         )
+
+        async def _prepare_environment() -> MaaFWRunnerEnvironment:
+            lease = await borrow.run()
+            fields = agent_env_client.lease_fields(lease)
+            try:
+                if not agent_env_client.worker_api_supported(lease):
+                    raise RuntimeError(agent_env_client.WORKER_API_MISMATCH_MESSAGE)
+                # 插件包：调用方不给就用四个包各自的父目录（worker 才导入得到它们）；agent 环境
+                # 那一份由借环境结果带回
+                import_paths = list(
+                    request.import_paths
+                    or worker_import_paths(lease.get("worker_paths"))
+                )
+                return environment_from_borrow(lease, import_paths=import_paths)
+            except Exception:
+                with suppress(Exception):
+                    await agent_env_client.return_environment(resolver, fields)
+                raise
+
+        prepare_environment_task = asyncio.create_task(_prepare_environment())
         try:
             self._emit(MaaFWPlanRunStage(STAGE_ENVIRONMENT))
             environment_ok = False
@@ -448,13 +459,13 @@ class MaaFWPlanRun:
             finally:
                 self._emit(MaaFWPlanRunStage(STAGE_ENVIRONMENT, ok=environment_ok))
         except asyncio.CancelledError:
-            # 取消要传进安装线程：置位令牌后正在跑的 uv/pip 子进程会被终止。
-            # 然后只等有限时间——后端关机时 Runtime 只给几秒，等不到就放弃，
-            # 租约释放交给后台任务或 TTL。
-            prepare_cancel_event.set()
+            # 取消要传进安装线程：borrow_stop 置位 agent 环境那边的令牌，正在跑的 uv/pip
+            # 子进程会被终止。然后只等有限时间——后端关机时 Runtime 只给几秒，等不到就放弃，
+            # 租约释放交给后台任务（停止后才借成的由 agent 环境自己还）或 TTL。
+            borrow.request_stop()
             await _abandon_environment_preparation(
                 prepare_environment_task,
-                release=service.release_environment,
+                release=release_environment,
                 grace_seconds=_PREPARE_ENVIRONMENT_CANCEL_GRACE_SECONDS,
                 send_log=emit_log,
             )
@@ -581,7 +592,7 @@ class MaaFWPlanRun:
             if event_server is not None:
                 event_server.close()
             with suppress(Exception):
-                await asyncio.to_thread(service.release_environment, runner_environment)
+                await release_environment(runner_environment)
             service.unregister_worker(worker_id)
             raise
         self._process = process
@@ -879,7 +890,7 @@ class MaaFWPlanRun:
                         )
                     )
             with suppress(Exception):
-                await asyncio.to_thread(service.release_environment, runner_environment)
+                await release_environment(runner_environment)
             service.unregister_worker(worker_id)
 
         if result_payload is not None:
@@ -1002,7 +1013,8 @@ async def _abandon_environment_preparation(
         except BaseException:
             return
         with suppress(Exception):
-            await asyncio.to_thread(release, prepared_after_cancel)
+            # release 是 agent 环境的 borrow_return（异步服务调用）
+            await release(prepared_after_cancel)
 
     cleanup_task = asyncio.create_task(release_after_prepare())
     scope = current_process_scope.get()

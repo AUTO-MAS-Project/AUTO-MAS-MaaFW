@@ -4,11 +4,10 @@ from importlib import import_module
 
 # 惰性导出：只留执行侧的名字。建计划的几个模块（run_plan、models、pipeline_override、
 # hotkey、task_selection、plan_transforms）已进解析库 ``maafw_interface.runner``，
-# 解析侧的名字从那里取；这里不急着导入 environment / service，免得只导入 worker
-# 协议时就带上 agent 环境与运行池。
+# 解析侧的名字从那里取。借还运行环境（``MaaFWRunnerEnvironment`` 等）已挪到宿主侧
+# ``maafw_runner.host.environment``，改走 agent 环境的服务（MFW 服务化实施方案 §5），
+# ``core`` 不再导出它们；``service`` 只剩建计划的薄壳。
 _LAZY_EXPORTS = {
-    "MaaFWRunnerEnvironment": ".environment",
-    "release_runner_environment": ".environment",
     "MaaFWRunnerService": ".service",
 }
 
@@ -26,7 +25,5 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
-    "MaaFWRunnerEnvironment",
     "MaaFWRunnerService",
-    "release_runner_environment",
 ]
