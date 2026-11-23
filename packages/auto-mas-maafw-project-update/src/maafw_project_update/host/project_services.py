@@ -657,15 +657,23 @@ class ProjectServices:
         if failure is not None:
             return failure
         record = self._record(parsed.record)
+        scope = _current_scope()
 
         async def run(job: ServiceJob) -> dict[str, Any]:
             return await self._repair_job(job, parsed, record)
 
-        return await self._start(
+        started = await self._start(
             "repair",
             run,
             cancelled_result={"ok": True, "checked_now": True, "rerun": None},
         )
+        job = self._handles.get("repair", started) if started.get("ok") else None
+        retain = getattr(scope, "retain_worker", None)
+        if job is not None and job.task is not None and callable(retain):
+            # 用户停止后作业交给 run_release 等（核对照样跑完）：宿主收尾会取消作用域上下文里没登记成
+            # 保留任务的任务，作业要活过这一步（原来等核对的那个后台任务也是保留任务）
+            retain(job.task)
+        return started
 
     async def _repair_job(
         self, job: ServiceJob, parsed: Any, record: Any
