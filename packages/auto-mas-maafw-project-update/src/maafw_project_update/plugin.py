@@ -21,6 +21,7 @@ from auto_mas_core.host.utils import get_logger
 from .api.routes import api_router as _api_router
 from .host import owners, service_slot
 from .host.agent_env_client import REQUIRES as _AGENT_ENV_REQUIRES
+from .host.project_services import SERVICE_METHODS, ProjectServices
 
 PACKAGE_NAME = "auto-mas-maafw-project-update"
 PACKAGE_VERSION = "0.2.0"
@@ -40,14 +41,21 @@ _OWNER_SETTLE_SECONDS = 10.0
 logger = get_logger("MFW 项目更新插件")
 
 
-class Plugin(ExtensionPlugin):
-    """项目副本、视图、导入更新与维护清理；三个专项经 ``owner.register`` 登记属主。"""
+class Plugin(ProjectServices, ExtensionPlugin):
+    """项目副本、视图、导入更新与维护清理。
+
+    服务：``maafw.project.v1.<操作>``（33 个）与 ``maafw.project_update.v1.<操作>``（13 个），实现在
+    ``host/project_services.py``；旧的分发式服务 ``maafw.project.v1`` / ``maafw.project_update.v1``
+    （``call(op, …)``）在新旧并存期保留。三个专项经 ``owner_register(name, prefix)``（新形）或旧的
+    ``call("owner.register", name=, service=)`` 登记属主，两种都认。
+    """
 
     # 用到的 agent 环境操作（15 个，``host/agent_env_client.py``）
     requires = _AGENT_ENV_REQUIRES
     provides_services = {
         "maafw.project.v1": "call",
         "maafw.project_update.v1": "call",
+        **SERVICE_METHODS,
     }
     api_router = _api_router
 
@@ -71,10 +79,8 @@ class Plugin(ExtensionPlugin):
             self._register_owner(str(kwargs["name"]), str(kwargs["service"]))
             return None
         if op == "owner.unregister":
-            name = str(kwargs["name"])
-            owners.unregister_owner(name)
-            for key in [key for key in self._resolvers if key[0] == name]:
-                del self._resolvers[key]
+            # 新旧两种登记一起撤
+            self._forget_owner(str(kwargs["name"]))
             return None
         raise ValueError(f"未知操作: {op}")
 
@@ -132,6 +138,8 @@ class Plugin(ExtensionPlugin):
                 f"MFW 有 {reserved} 个项目目录正被运行、导入或准备运行环境占用，"
                 "请等它们结束后再操作"
             )
+        # 服务作业（打开、更新、确认环境、修复、复制或删除托管……）还在跑
+        reasons.extend(self.service_blockers())
         return reasons
 
     # -- 生命周期 ---------------------------------------------------------------
@@ -168,11 +176,19 @@ class Plugin(ExtensionPlugin):
         )
 
     async def on_disable(self) -> None:
-        # 后台维护随 background_tasks 组由宿主取消；这里只撤掉注入的信号
+        # 在途服务作业置停止并取消、打开作业的预约等它做完再交回、清空句柄表
+        await self.shutdown_services(teardown=False)
+        # 后台维护随 background_tasks 组由宿主取消；这里撤掉注入的信号与解析器
         if self._signal_injected:
             owners.set_loaded_signal(None)
             self._signal_injected = False
         self._maintenance = None
+        service_slot.unbind(getattr(self, "services", None))
+
+    async def on_teardown(self) -> None:
+        """退出：在途服务作业置停止，最多等 2 秒，清空句柄表（宿主退出时调它，不调 ``on_disable``）。"""
+
+        await self.shutdown_services(teardown=True)
         service_slot.unbind(getattr(self, "services", None))
 
 
