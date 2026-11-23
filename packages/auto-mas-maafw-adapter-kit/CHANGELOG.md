@@ -6,6 +6,7 @@
 - 新模块 `services`（专项调三块服务插件的那一层：服务槽、客户端、结果与异常、长操作与同步停止、事件分派、打开项目与交回运行预约两个助手、操作名常量元组、各请求构造函数）与 `project_texts`（三句良性跳过原文与打开项目失败的那句话）。
 - `owner_entry` 加属主服务的新形：`record_payload`（托管记录转成只含 JSON 值的字典，导入时间出 ISO 字符串）、`ConfigOwner`、`OwnerServiceMixin`、`owner_provides`、`write_or_raise`；旧的 `BuiltinConfigOwner` 原样保留。
 - `services.open_request` 多一个可选的 `round_started_at`（这一轮开始的时刻，过边界出 ISO 字符串）：原先打开项目的会话请求里就带着它，项目更新收尾清原生日志备份要用；不传就不带。
+- `services.release_run_reservation` 停止分支开运行前设置的退出确认时带 `after_scope=true`：快照照旧当场拍，运行服务先等作用域收尾再等确认退出（原先的先后）；不认这个字段的旧运行服务照旧当场开始等。
 - `default_snapshot`、`option_secrets` 算视图目录、判视图健康改读两块库（`maafw_native.layout.view_dir`、`maafw_interface.interface.loader.has_interface_file`，与项目更新同一算法），不再在函数体内导入项目更新。新依赖 `auto-mas-maafw-native`。
 
 ## [0.2.0] - 2026-11-22

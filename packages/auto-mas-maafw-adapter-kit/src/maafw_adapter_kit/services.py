@@ -1058,10 +1058,14 @@ async def open_project(
 
 
 async def _start_exit_watch(client: ServiceClient, account: str | None) -> str | None:
-    """此刻拍运行前设置的退出快照（``pretask_exit_watch_start``），返回句柄；拿不到返回 None。"""
+    """此刻拍运行前设置的退出快照（``pretask_exit_watch_start``），返回句柄；拿不到返回 None。
+
+    带 ``after_scope``：运行服务的作业先等调用方此刻的进程作用域收尾、再等确认退出（原先就是
+    「先等作用域 finished，再 await 快照的确认」）；不认这个字段的旧运行服务照旧当场开始等。
+    """
 
     reply = await client.call(
-        f"{RUNNER_PRETASK_EXIT_WATCH}_start", {"account": account}
+        f"{RUNNER_PRETASK_EXIT_WATCH}_start", {"account": account, "after_scope": True}
     )
     handle = reply.get("handle")
     if reply.ok and isinstance(handle, str) and handle:
