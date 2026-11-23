@@ -21,6 +21,7 @@ from __future__ import annotations
 import types
 import typing
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -97,6 +98,8 @@ class OpenStartRequest(_Request):
     owner: str
     record: ManagedRecordPayload
     script_name: str = ""
+    #: 这一轮开始的时刻（ISO 8601）；提供方还原成秒数交给会话，缺省 0（同旧请求的缺省）。
+    round_started_at: datetime | None = None
 
 
 class HandleRequest(_Request):

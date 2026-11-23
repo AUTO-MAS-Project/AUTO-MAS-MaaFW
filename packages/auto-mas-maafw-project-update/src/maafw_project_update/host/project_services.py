@@ -89,6 +89,13 @@ def _record_update(record: Any) -> dict[str, Any] | None:
     }
 
 
+def _seconds(instant: Any) -> float:
+    """请求里的时刻（ISO 8601，契约已解析成 datetime）还原成会话要的秒数（``time.time()`` 口径）；
+    没带就是 0（会话请求的缺省）。"""
+
+    return 0.0 if instant is None else instant.timestamp()
+
+
 def display_name(script_id: str) -> str:
     """``latest.by`` / ``switchedBy`` 记的托管 → 名字（经属主登记查），取不到时与专项原先的兜底链相同。"""
 
@@ -481,6 +488,7 @@ class ProjectServices:
             owner=parsed.owner,
             script_name=parsed.script_name,
             siblings=current_siblings(),
+            round_started_at=_seconds(parsed.round_started_at),
         )
         scope = _current_scope()
 
