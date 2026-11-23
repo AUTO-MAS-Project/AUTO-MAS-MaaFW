@@ -54,6 +54,10 @@ class ExitWatchStartRequest(_Request):
     """``pretask_exit_watch_start``：账号句柄；没开过账号（检查没过）时为 null，当场确认。"""
 
     account: str | None = None
+    #: 可选：为真时作业先等调用方此刻的进程作用域收尾（``finished``）再等确认退出——快照仍在
+    #: ``_start`` 当场拍，与原 ``release_run_reservation`` 停止分支「先等作用域、再等运行前设置确认」
+    #: 的先后一致。缺省假（当场开始等，旧行为）。
+    after_scope: bool = False
 
 
 class DesktopSpec(_Request):

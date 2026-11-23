@@ -323,6 +323,12 @@ class RunnerServices:
             return None
 
     @staticmethod
+    def _process_scope() -> Any:
+        from auto_mas_core.host.utils_common_process_scope import current_process_scope
+
+        return current_process_scope.get()
+
+    @staticmethod
     def _desktop_target() -> Any:
         from auto_mas_core.host.utils_common_process_session import (
             desktop_process_target,
@@ -828,8 +834,13 @@ class RunnerServices:
         if account is None:
             return self._unknown_account()
         confirm = account.pretasks.exit_confirmation()
+        # after_scope：调用方此刻的进程作用域（作业任务在这次调用里建，读的也是它），收尾后再等确认
+        scope = self._process_scope() if parsed.after_scope else None
 
         async def body(job: ServiceJob) -> dict[str, Any]:
+            finished = getattr(scope, "finished", None)
+            if finished is not None:
+                await finished.wait()
             return {"ok": True, "confirmed": bool(await confirm())}
 
         return self._start_account_job(
