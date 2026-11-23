@@ -65,20 +65,16 @@ try:
 except ImportError:  # pragma: no cover - 只有很老的 binding 会走到
     _ContextEventSinkBase = None
 
-from maafw_agent_env.core.agent_env import (
-    project_python_agent_binary_path,
-    write_agent_compat_shims,
-)
-from maafw_agent_env.core.agent_env.env import AGENT_PROGRAM_MISSING_HINT
-from maafw_agent_env.core.agent_env.pip_constraint import (
+# worker 对 agent 环境只经门面 worker_api 导入（MFW 服务化实施方案 §5）；宿主侧起 worker 前
+# 核对借环境结果里回报的门面版本（host.agent_env_client.WORKER_API_VERSION）。
+from maafw_agent_env.core.worker_api import (
     AGENT_PIP_CONSTRAINT_DIR_ENV,
+    AGENT_PROGRAM_MISSING_HINT,
     agent_maafw_pip_constraint,
     apply_agent_pip_constraint,
+    project_python_agent_binary_path,
+    write_agent_compat_shims,
     write_agent_pip_constraint,
-)
-from maafw_agent_env.core.runtime_pool.host_environment import (
-    set_project_pycache_prefix,
-    strip_host_python_environment,
 )
 from maafw_interface.log_redact import mask_home_path
 from maafw_interface.runner.models import (
@@ -101,6 +97,10 @@ from maafw_native.project_runtime import (
     project_maafw_runtime_path,
     read_runtime_maafw_version,
     runtime_missing_dependencies,
+)
+from maafw_native.subprocess_env import (
+    set_project_pycache_prefix,
+    strip_host_python_environment,
 )
 
 # 宿主也要用的常量放在不依赖 maa 的 worker_protocol 里（本模块一导入就加载 maa，宿主引不了）
@@ -2906,9 +2906,7 @@ class MaaFWRunner:
             return
 
         self.send_log(f"[Python环境] 开始准备 {len(process_agents)} 个 Agent 环境")
-        from maafw_agent_env.core.agent_env.env import (
-            prepare_agent_envs,
-        )
+        from maafw_agent_env.core.worker_api import prepare_agent_envs
 
         # 项目没自带原生库时 agent 的 maafw 钉成本 worker 实际加载的 binding 版本（宿主备 runner
         # 环境时解析出的同一个，也在 job 的 PI_CLIENT_MAAFW_VERSION 里）。

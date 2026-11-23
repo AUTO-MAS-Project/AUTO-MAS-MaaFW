@@ -4,6 +4,8 @@
 
 - 项目 pipeline 自己用 StopTask 停下的任务（如 M9A v4.15.0 回不了主界面时）照旧算成功、不触发重试，但任务日志不再写「任务完成」，改写「任务已被项目停止」；运行结果带 `projectStoppedTasks`，运行记录里这个任务的类别是 `project_stopped`，统计报告的逐任务时间线标「（被项目停止）」。判据是节点动作通知里的 `action_details.action`，用户停止、超时停止不受影响。
 - `core/runner/run_events.py` 与 `worker_protocol` 的三个信号常量（`SERVER_MAINTENANCE`、`CLIENT_UPDATE_REQUIRED`、`SIGNAL_SCREENSHOT_KINDS`）的权威一份搬进解析库（`maafw_interface.runner.run_events`、`maafw_interface.runner.models`），原位置原样再导出，导入写法不变；信号常量是惰性再导出，worker 导入 `worker_protocol` 时照旧不带进 pydantic。要带这两个模块的解析库。
+- 登记 29 个服务操作 `maafw.runner.v1.<操作>`（账号句柄、桌面游戏、设备配置、运行前设置、跑计划），包装原有的 `MaaFWPlanRun`、`MaaFWPretaskRunner`、`MaaFWDesktopGame` 与 `device_config`，请求按 `contract.py` 校验；`account_close` 总是成功、有作业时延后；`teardown_blockers` 改数有在途作业的账号（专项旧路径上直接跑的计划照旧也算），补 `on_disable`、`on_teardown`。旧的 `maafw.runner.v1` 分发服务和原有类、函数照旧。
+- 借还运行环境改调 agent 环境的服务（`borrow_*`、`borrow_return`，`requires` 写这 5 个），宿主侧不再导入 `maafw_agent_env`；起 worker 前核对借环境结果回报的门面版本，不配套就不起 worker。`core/runner/environment.py` 只留 worker 用的那一个函数，借还与拼环境挪到 `host/environment.py`，`core/runner/service.py` 只剩 `build_plan`；worker 对 agent 环境只经 `maafw_agent_env.core.worker_api` 导入。打码、原生报错摘录、游戏包名识别、`find_controller` 与无窗口规则文案改从解析库取（原名字照旧可从原模块导入）。
 
 ## [0.2.0] - 2026-11-22
 
