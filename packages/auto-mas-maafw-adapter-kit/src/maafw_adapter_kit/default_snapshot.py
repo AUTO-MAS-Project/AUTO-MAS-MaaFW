@@ -37,14 +37,17 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from maafw_interface.interface.loader import load_interface_model_cached
+from maafw_interface.interface.loader import (
+    has_interface_file,
+    load_interface_model_cached,
+)
 from maafw_interface.runner.run_plan import (
     MaaFWRunPlanError,
     resolve_default_snapshot,
 )
+from maafw_native.layout import view_dir
 
 from ._logging import get_logger
 
@@ -93,13 +96,9 @@ def _build_default_snapshots(
     """``targets`` 是 ``(账号 id, 账号名称, 选的预设)``；返回 ``{账号 id: (要写进的快照 JSON,
     给日志的来源说明)}``。"""
 
-    from maafw_project_update.host.embedded_project import (
-        copy_is_healthy,
-        resolve_maafw_project_root,
-    )
-
-    root = Path(resolve_maafw_project_root(script_id, script_config))
-    if not copy_is_healthy(root):
+    # 视图目录只由托管 ID 推出（项目更新 resolve_maafw_project_root 同一算法，也不看配置）
+    root = view_dir(script_id)
+    if not has_interface_file(root):
         return {}
     try:
         interface = load_interface_model_cached(root)
