@@ -1152,6 +1152,17 @@ async def release_run_reservation(
                 return
             if watch is not None and not await _exit_confirmed(client, watch):
                 return
+            if repair is not None:
+                # 原来在这个任务里 await shield(核对任务)：核对做完才放，放也在这个任务里（作用域保留
+                # 着它）。跟住修复作业到结束（它还发的日志照样交给 on_repair_event），交回时提供方当场按
+                # 它的结局放或留
+                await follow_handle(
+                    client,
+                    PROJECT_REPAIR,
+                    repair,
+                    on_event=on_repair_event,
+                    cursor=repair_cursor,
+                )
             await _run_release(client, key, after_job=repair, on_job_error="keep")
 
         from auto_mas_core.host.utils_common_process_scope import (
