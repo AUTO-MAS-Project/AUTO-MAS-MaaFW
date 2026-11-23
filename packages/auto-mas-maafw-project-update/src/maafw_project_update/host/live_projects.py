@@ -29,7 +29,7 @@
 
 from __future__ import annotations
 
-import threading
+import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,10 +41,7 @@ from maafw_project_update.host.embedded_project import (
     resolve_maafw_project_root,
     view_owner,
 )
-from maafw_agent_env.host.pool_reconcile import (
-    reconcile_after_project_update,
-    reconcile_runtime_pool,
-)
+from maafw_project_update.host import agent_env_client, service_slot
 from auto_mas_core.host.utils import get_logger
 
 # 与 ``pool_reconcile`` 同一个 logger 名：这几行原先就在那里记。
@@ -158,11 +155,13 @@ def reconcile_in_background(
     updated_project_path: str | Path | None = None,
     previous_version: str | None = None,
 ) -> None:
-    """起一个守护线程跑一轮回收，调用方不等结果。
+    """在后台跑一轮运行池回收，调用方不等结果。
 
     删脚本、项目更新提交这类路径都不该被回收拖慢（解释器探针 + 可能的
-    ``uv cache clean`` 要几秒）。给了 ``updated_project_path`` 就走
-    ``reconcile_after_project_update``，把被替换掉的旧版本一并豁免宽限。
+    ``uv cache clean`` 要几秒）。回收是 agent 环境的 ``reconcile`` 作业（``detach=true``：提供方
+    跑完自己丢结果，回收失败那句告警也由它照原文记），由本插件的后台任务起，不属于调用方的进程
+    作用域（原先是守护线程，同样不属于）。给了 ``updated_project_path`` 就把被替换掉的旧版本一并
+    豁免宽限。
 
     权威集合在**调用方线程**（事件循环）上先算好：托管表只在事件循环上改，守护线程里
     去问属主会撞上「dict changed size」。托管没完整加载、或有属主答不上来时整轮跳过。
@@ -187,23 +186,62 @@ def reconcile_in_background(
         logger.warning(f"MFW 运行池对账的存活集合没算出来，本轮跳过（{reason}）：{exc}")
         return
 
-    def _run() -> None:
+    request: dict[str, object] = {
+        "target": "runtime_pool",
+        "keep_paths": [str(path) for path in project_paths],
+        "reason": reason,
+        "detach": True,
+    }
+    if updated_project_path is not None:
+        request["updated_project_path"] = str(updated_project_path)
+        request["previous_version"] = previous_version
+
+    async def _run() -> None:
         try:
-            if updated_project_path is not None:
-                reconcile_after_project_update(
-                    project_paths,
-                    updated_project_path,
-                    previous_version,
-                    reason=reason,
-                )
-            else:
-                reconcile_runtime_pool(project_paths, reason=reason)
+            started = await agent_env_client.call("reconcile_start", request)
         except Exception:  # noqa: BLE001 - 后台维护，失败只记日志
             logger.opt(exception=True).warning(f"MFW 运行池后台回收失败（{reason}）")
+            return
+        if not started.get("ok"):
+            logger.warning(
+                f"MFW 运行池后台回收失败（{reason}）：{started.get('message') or ''}"
+            )
 
-    threading.Thread(
-        target=_run, name=f"maafw-pool-reconcile:{reason}", daemon=True
-    ).start()
+    _spawn_background(_run, name=f"maafw-pool-reconcile:{reason}")
+
+
+_BACKGROUND: set[asyncio.Future[object]] = set()
+
+
+def _spawn_background(factory, *, name: str) -> None:
+    """起一个不属于调用方进程作用域的后台任务（插件的 ``background_tasks.spawn``）。
+
+    插件没给后台任务组时在事件循环上用脱离作用域的上下文直接建；不在事件循环线程里调时交给插件
+    启用时记下的事件循环。
+    """
+
+    spawn = service_slot.spawner()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None:
+        target = service_slot.loop()
+        if target is None or target.is_closed():
+            logger.warning(f"MFW 运行池后台回收没能启动（{name}）：插件未启用")
+            return
+        target.call_soon_threadsafe(_spawn_background, factory, name=name)
+        return
+    if spawn is not None:
+        spawn(factory)
+        return
+    from auto_mas_core.host.utils_common_process_scope import (
+        detached_process_context,
+    )
+
+    task = loop.create_task(factory(), name=name, context=detached_process_context())
+    _BACKGROUND.add(task)
+    task.add_done_callback(_BACKGROUND.discard)
 
 
 __all__ = [

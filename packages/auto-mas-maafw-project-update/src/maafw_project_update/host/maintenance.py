@@ -147,13 +147,14 @@ class MaaFWMaintenanceService:
         from maafw_project_update.host.embedded_project import (
             resolve_maafw_project_root,
         )
+        from maafw_project_update.host import agent_env_client
         from maafw_project_update.host.live_projects import keep_view_paths
-        from maafw_agent_env.host.pool_reconcile import (
-            agent_venvs_root,
-            reconcile_agent_venvs,
-        )
 
-        if not agent_venvs_root().is_dir():
+        # 隔离 venv 根在不在、回收本身都归 agent 环境（``storage_info`` / ``reconcile`` 服务）。
+        storage = agent_env_client.raise_for_failure(
+            await agent_env_client.call("storage_info")
+        )
+        if not storage.get("has_agent_venvs"):
             return
         if not self._scripts_loaded_intact():
             logger.warning("脚本配置未完整加载，跳过 MFW 隔离 venv 孤儿清理")
@@ -177,7 +178,12 @@ class MaaFWMaintenanceService:
                 f"MFW 隔离 venv 清理：{len(missing)} 个脚本还没有副本，不计入存活"
             )
         # 属主确认仍在的视图，加上判定不了「已经不在」的视图（没属主标记、属主没登记）。
-        reconcile_agent_venvs(keep_view_paths(current))
+        agent_env_client.raise_for_failure(
+            await agent_env_client.run_job(
+                "reconcile",
+                {"target": "agent_venvs", "keep_paths": keep_view_paths(current)},
+            )
+        )
 
     async def clean_env_cache(self) -> None:
         """运行环境确认缓存（``config/maafw_env_cache``）只留仍在的托管的项目目录。
@@ -192,10 +198,8 @@ class MaaFWMaintenanceService:
             keep_project_paths,
         )
 
-        try:
-            from maafw_agent_env.host.env_cache import prune_prepared_environments
-        except ImportError:  # agent 环境积木还是 0.1.0：没有这个函数，照旧只增不减
-            return
+        from maafw_project_update.host import agent_env_client
+
         if not self._scripts_loaded_intact():
             return
         current = self._snapshot(require_ready=True)
@@ -210,7 +214,13 @@ class MaaFWMaintenanceService:
             logger.info("MFW 托管已登记但没有存活视图，跳过运行环境缓存清理")
             return
         try:
-            removed = prune_prepared_environments(keep_project_paths(current))
+            # 缓存归 agent 环境（``cache_prune`` 服务）
+            pruned = agent_env_client.raise_for_failure(
+                await agent_env_client.call(
+                    "cache_prune", {"keep_project_paths": keep_project_paths(current)}
+                )
+            )
+            removed = int(pruned.get("removed") or 0)
         except Exception as exc:  # noqa: BLE001 - 缓存清不掉不影响启动
             logger.warning(f"MFW 运行环境缓存清理失败: {exc}")
             return
@@ -439,13 +449,14 @@ class MaaFWMaintenanceService:
         疑似没加载起来、属主答不上来时弃权。
         """
 
+        from maafw_project_update.host import agent_env_client
         from maafw_project_update.host.live_projects import keep_project_paths
-        from maafw_agent_env.host.pool_reconcile import (
-            reconcile_runtime_pool,
-            runtime_pool_root,
-        )
 
-        if not (runtime_pool_root() / "runtimes").is_dir():
+        # 池根下有没有 runtimes、回收本身都归 agent 环境（``storage_info`` / ``reconcile`` 服务）。
+        storage = agent_env_client.raise_for_failure(
+            await agent_env_client.call("storage_info")
+        )
+        if not storage.get("has_runtimes"):
             return
         if not self._scripts_loaded_intact():
             logger.warning(
@@ -457,10 +468,15 @@ class MaaFWMaintenanceService:
             logger.warning("MFW 托管属主的回答这次不算数，跳过 MFW 运行池回收")
             return
         try:
-            await asyncio.to_thread(
-                reconcile_runtime_pool,
-                keep_project_paths(current),
-                reason="startup",
+            agent_env_client.raise_for_failure(
+                await agent_env_client.run_job(
+                    "reconcile",
+                    {
+                        "target": "runtime_pool",
+                        "keep_paths": keep_project_paths(current),
+                        "reason": "startup",
+                    },
+                )
             )
         except Exception as exc:  # noqa: BLE001 - 回收失败不该影响启动
             logger.warning(f"MFW 运行池回收失败: {exc}")

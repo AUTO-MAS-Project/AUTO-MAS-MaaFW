@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -99,31 +99,6 @@ def _maafw_agent_env_prepare_data(
     )
 
 
-def _warn_agent_imports(
-    root_path: Path, result: Mapping[str, Any], log: Callable[[str], None]
-) -> None:
-    """按准备结果里的 agent 计划做导入静态检查，结论只进日志；检查失败静默放行。"""
-
-    try:
-        from maafw_agent_env.core.agent_env.import_check import (
-            check_agent_plan_imports,
-            log_agent_import_reports,
-        )
-        from maafw_interface.interface.agent_command import (
-            MaaFWAgentCommandPlan,
-        )
-
-        agents = result.get("agents") or {}
-        plans = [
-            MaaFWAgentCommandPlan.model_validate(item)
-            for item in (agents.get("plans") or [])
-        ]
-        reports = check_agent_plan_imports(root_path, plans)
-        log_agent_import_reports(reports, log, blocking=False)
-    except Exception as exc:  # noqa: BLE001 - 提示性检查，出错不影响准备结果
-        _maafw_env_logger.warning(f"agent 导入检查没能完成：{exc}")
-
-
 async def prepare_agent_env(
     script_id: str | None, path: str, force: bool
 ) -> MaaFWApiReply:
@@ -132,32 +107,15 @@ async def prepare_agent_env(
     ``force`` 跳过这层缓存（用户手动重试）。
     """
 
-    # 这些模块会拉起 runtime_pool 与 agent_env，放在函数内延迟导入，
-    # 避免所有 API 请求都为它们付出导入成本。
+    # 指纹、缓存、路由、准备与导入检查都在 agent 环境插件（``env_lookup`` / ``runtime_route`` /
+    # ``prepare_*`` 服务）；端点仍在请求里等准备做完。
     from auto_mas_core.host.core import Publisher
     from auto_mas_core.host.core_ws import protocol as ws_protocol
-    from maafw_agent_env.core.agent_env.project_env import (
-        prepare_project_environment,
-        project_environment_fingerprint,
-    )
-    from maafw_agent_env.core.runtime_pool import (
-        MaaFWRuntimePoolService,
-    )
-    from maafw_agent_env.core.runtime_pool.host_environment import (
-        subprocess_proxy_scope,
-    )
-    from maafw_agent_env.host.env_cache import (
-        has_prepared_environment,
-        load_prepared_environment,
-        store_prepared_environment,
-    )
+    from maafw_project_update.host import agent_env_client
     from maafw_project_update.host.project_path import (
         is_project_updating,
         release_project_path,
         try_reserve_project_path,
-    )
-    from maafw_agent_env.host.runtime_route import (
-        runtime_pool_route_from_service,
     )
 
     logs: list[str] = []
@@ -225,12 +183,11 @@ async def prepare_agent_env(
         busy_cached = None
         if not force and not is_project_updating(root_path):
             try:
-                busy_fingerprint = await asyncio.to_thread(
-                    project_environment_fingerprint, root_path
-                )
-                busy_cached = await asyncio.to_thread(
-                    load_prepared_environment, root_path, busy_fingerprint
-                )
+                busy_cached = agent_env_client.raise_for_failure(
+                    await agent_env_client.call(
+                        "env_lookup", {"project_path": str(root_path)}
+                    )
+                ).get("cached")
             except Exception as exc:  # noqa: BLE001 - 读不了缓存就按「忙」回
                 _maafw_env_logger.debug(f"项目忙时读取运行环境缓存失败：{exc}")
             if busy_cached is not None:
@@ -260,18 +217,18 @@ async def prepare_agent_env(
         # 指纹哈希的是 interface / requirements / uv.lock 这些「脚本更新了没」
         # 的输入，所以项目一更新缓存自然失效。放在拿到项目锁之后：此刻没人在
         # 更新这个目录，算出来的指纹不会是半个更新中间态。
-        fingerprint = await asyncio.to_thread(
-            project_environment_fingerprint, root_path
-        )
         # 界面要分「运行环境准备完成」和「运行环境更新完成」两句话，在写入新缓存前先看一眼：
         # 上次准备时的输入与这次相同（强制重新准备一个没变过的项目）不算更新。
-        previously_prepared = await asyncio.to_thread(
-            has_prepared_environment, root_path, fingerprint
-        )
-        if not force:
-            cached_result = await asyncio.to_thread(
-                load_prepared_environment, root_path, fingerprint
+        lookup = agent_env_client.raise_for_failure(
+            await agent_env_client.call(
+                "env_lookup",
+                {"project_path": str(root_path), "want_previously_prepared": True},
             )
+        )
+        fingerprint = lookup.get("fingerprint")
+        previously_prepared = bool(lookup.get("previously_prepared"))
+        if not force:
+            cached_result = lookup.get("cached")
             if cached_result is not None:
                 prepared_at = str(cached_result.get("preparedAt") or "")
                 append_log(
@@ -297,8 +254,10 @@ async def prepare_agent_env(
                 MaaFWAgentEnvPrepareData(path=str(root_path), logs=logs),
             )
 
-        route = await asyncio.to_thread(
-            lambda: runtime_pool_route_from_service(MaaFWRuntimePoolService())
+        del interface  # 只为读不出时按原文回 400；准备作业里再读一次（走同一份缓存）
+        # 路由失败照旧让异常从端点抛出去（原文不变）。
+        route = agent_env_client.raise_for_failure(
+            await agent_env_client.call("runtime_route")
         )
         # 这个端点按请求里的 path 定位项目、不经脚本配置（见 MaaFW/AGENTS.md），
         # 所以代理只在 scriptId 能解析到一份 MFW 脚本配置时才按托管级取；
@@ -310,21 +269,33 @@ async def prepare_agent_env(
             except (KeyError, ValueError, TypeError):
                 pass
 
-        def _prepare_with_proxy() -> dict[str, Any]:
-            # 代理作用域按线程登记，必须在 to_thread 的目标函数体内进入，
-            # uv / pip 子进程环境才带上用户在 MAS 里填的代理。
-            with subprocess_proxy_scope(proxy_url):
-                return prepare_project_environment(
-                    root_path,
-                    interface,
-                    runtime_pool_root=route.root,
-                    runtime_pool_id=route.pool_id,
-                    send_log=append_log,
-                    progress=publish_progress,
-                )
+        def on_event(event: dict[str, Any]) -> None:
+            if event.get("type") == "log":
+                append_log(str(event.get("message", "")))
+            elif event.get("type") == "progress":
+                data = event.get("data")
+                publish_progress(dict(data) if isinstance(data, Mapping) else {})
 
+        # 准备完顺带查一次 agent 的导入（只提示、不挡；同一个检查在更新预检里会拒绝缺模块的新
+        # 版本），再写环境缓存（写在项目锁内：写完才放行下一个准备 / 更新请求）。用准备流程
+        # 自己回报的指纹，本地这份只在它没回报时兜底。请求被取消时作业脱手：准备照常做完，
+        # 不再查导入、不写缓存（与原先端点被取消后那段代码不再执行一致）。
+        prepared = await agent_env_client.run_job(
+            "prepare",
+            {
+                "project_path": str(root_path),
+                "runtime_pool_root": route.get("root"),
+                "runtime_pool_id": route.get("pool_id"),
+                "proxy_url": proxy_url,
+                "store_cache": True,
+                "fallback_fingerprint": fingerprint,
+                "import_check": "warn",
+            },
+            on_event=on_event,
+        )
         try:
-            result = await asyncio.to_thread(_prepare_with_proxy)
+            agent_env_client.raise_for_failure(prepared)
+            result = prepared.get("environment") or {}
         except Exception as exc:
             # 失败原因此前只活在响应体与 WS 事件里，两边都不落盘：用户报障时
             # app.log 里一行都没有，只能对着界面截图猜。准备过程的逐行日志
@@ -345,18 +316,6 @@ async def prepare_agent_env(
                 f"MFW 运行环境准备失败: {exc}",
                 MaaFWAgentEnvPrepareData(path=str(root_path), logs=logs),
             )
-        # 导入 / 重新准备后顺带查一次 agent 的导入：这里只提示、不挡（同一个检查在
-        # 更新预检里会拒绝缺模块的新版本）。
-        await asyncio.to_thread(_warn_agent_imports, root_path, result, append_log)
-        # 用准备流程自己回报的指纹：它在准备前后各算了一次，确认这期间项目文件
-        # 没被动过；本地这份只在它没回报时兜底。
-        # 写在项目锁内：写完才放行下一个准备/更新请求，免得它读到半份缓存。
-        await asyncio.to_thread(
-            store_prepared_environment,
-            root_path,
-            str(result.get("projectFingerprint") or "") or fingerprint,
-            result,
-        )
     finally:
         await release_project_path(reservation_key)
 

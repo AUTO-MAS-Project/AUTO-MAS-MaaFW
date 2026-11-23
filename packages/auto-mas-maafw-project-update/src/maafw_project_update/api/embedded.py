@@ -341,6 +341,9 @@ def _project_flavor_mismatch(
         )
         return None
     try:
+        if getattr(mismatch, "wants_project_root", False):
+            # 新形属主（服务）自己读 interface：给它 interface 所在的目录（同进程同一份缓存）
+            return mismatch(interface, project_root=interface_base)
         return mismatch(interface)
     except Exception as exc:  # noqa: BLE001 - 识别出错不该挡住导入
         logger.warning(f"MFW 托管属主识别项目失败，不拦截：{exc}")
@@ -573,11 +576,12 @@ def _import_failure_reason(error: str) -> str:
 async def _previous_maafw_version(copy_dir: Path) -> str | None:
     """副本换树（重导 / 克隆覆盖）之前它钉定的 maafw 精确版本；没有副本或读不出为 None。"""
 
-    from maafw_agent_env.host.pool_reconcile import previous_maafw_version
+    # 原生库识别库：与 agent 环境回收时比对的是同一份实现
+    from maafw_native.requirement import project_exact_maafw_version
 
     if not copy_dir.is_dir():
         return None
-    return await asyncio.to_thread(previous_maafw_version, copy_dir)
+    return await asyncio.to_thread(project_exact_maafw_version, copy_dir)
 
 
 def _reconcile_pool_after_copy_change(

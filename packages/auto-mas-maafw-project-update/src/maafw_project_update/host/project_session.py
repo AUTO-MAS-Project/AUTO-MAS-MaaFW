@@ -51,7 +51,7 @@ from maafw_project_update.core.file_lockers import describe_lockers_async
 from maafw_project_update.core.project_update.payloads import (
     lineage_info_from_interface,
 )
-from maafw_project_update.host import owners
+from maafw_project_update.host import agent_env_client, owners
 from maafw_project_update.host.embedded_project import (
     EmbeddedProjectError,
     GroupMember,
@@ -404,19 +404,35 @@ def _load_interface_model(project_path: Path, *, force_reload: bool = False):
 
 
 def _runtime_pool_route():
-    """解析 Runtime Pool 路由（root + poolId）。
+    """解析 Runtime Pool 路由（root + poolId）：agent 环境的 ``runtime_route``。
 
-    **只在工作线程里调**（``asyncio.to_thread``）：构造服务要拿进程级的池锁，
-    别的线程正持锁建 base venv / 装解释器 / 回收时会等上几秒到几分钟，放在事件
-    循环上整个后端都跟着停住。
+    **只在工作线程里调**（``asyncio.to_thread``）：经线程桥交给事件循环调服务（服务自己在工作线程里
+    拿池锁）。事件循环上直接 ``await _runtime_pool_route_async()``。
     """
 
-    from maafw_agent_env.core.runtime_pool import MaaFWRuntimePoolService
-    from maafw_agent_env.host.runtime_route import (
-        runtime_pool_route_from_service,
+    route = agent_env_client.raise_for_failure(
+        agent_env_client.call_threadsafe(
+            agent_env_client.fallback_bridge(), "runtime_route"
+        )
     )
+    return SimpleNamespace(root=Path(route["root"]), pool_id=route.get("pool_id"))
 
-    return runtime_pool_route_from_service(MaaFWRuntimePoolService())
+
+async def _runtime_pool_route_async():
+    """:func:`_runtime_pool_route` 的事件循环版：失败照原先那样把原文抛出去。"""
+
+    route = agent_env_client.raise_for_failure(
+        await agent_env_client.call("runtime_route")
+    )
+    return SimpleNamespace(root=Path(route["root"]), pool_id=route.get("pool_id"))
+
+
+async def _previous_maafw_version(project_path: Path) -> str | None:
+    """项目此刻钉定的 maafw 精确版本（原生库识别库，与 agent 环境回收比对的是同一份）。"""
+
+    from maafw_native.requirement import project_exact_maafw_version
+
+    return await asyncio.to_thread(project_exact_maafw_version, project_path)
 
 
 def _release_after_work(key: str, task: asyncio.Task[Any]) -> None:
@@ -527,12 +543,10 @@ def describe_update_result(
 def describe_precheck_failure(phase_zh: str, failure: Mapping[str, Any]) -> str:
     """预检失败给用户看的一句话；按 ``kind`` 分文案。"""
 
-    from maafw_agent_env.core.agent_env.import_check import (
-        KIND_AGENT_MODULE_MISSING,
-    )
     from maafw_project_update.core.project_update.precheck_memo import (
         KIND_BINDING_UNAVAILABLE,
     )
+    from maafw_project_update.host.precheck import KIND_AGENT_MODULE_MISSING
 
     name = str(failure.get("projectName") or "MFW 项目").strip()
     target = str(failure.get("targetVersion") or "新版本").strip()
@@ -697,6 +711,10 @@ class MaaFWProjectSession:
         # 队列预下载的候选：(项目身份, (下载时的项目版本, 发现结果))。
         self._prefetched_project_update: tuple[str, Any] | None = None
         self._prefetched_project_identity: tuple[Any, ...] | None = None
+        # 最近一次 :meth:`update` / :meth:`confirm_environment` 的结局、:meth:`prefetch` 没下时的原因
+        # （只给服务层的结果与测试用，不影响流程）。
+        self.outcome: str | None = None
+        self.prefetch_skip_reason: str | None = None
 
     # ------------------------------------------------------------------ 出口
 
@@ -960,11 +978,7 @@ class MaaFWProjectSession:
             if entry_now is not None and str(entry_now["id"]) != str(marker["payload"]):
                 # 要切了：记下切之前钉定的 maafw 版本，切完它若已没有视图在用，运行池
                 # 对账时豁免宽限（与更新提交后同一条路）。
-                from maafw_agent_env.host.pool_reconcile import (
-                    previous_maafw_version,
-                )
-
-                previous_maafw = await asyncio.to_thread(previous_maafw_version, view)
+                previous_maafw = await _previous_maafw_version(view)
             result = await sync_view_to_group(
                 script_id, channel, reservation_held=reservation_held
             )
@@ -1148,7 +1162,7 @@ class MaaFWProjectSession:
         # 否则受限网络下「手动能更、自动不能」。托管级优先，留空跟随全局；
         # 下载与预检都用触发脚本的这一份。
         proxy = _update_proxy(shape)
-        route = await asyncio.to_thread(_runtime_pool_route)
+        route = await _runtime_pool_route_async()
         failure = precheck_failure if precheck_failure is not None else {}
         session = UpdateSession(
             request.script_id,
@@ -1244,7 +1258,9 @@ class MaaFWProjectSession:
 
         shape = _config_shape(request)
         phase_zh = "运行前" if phase == "BeforeRun" else "运行后"
+        self.outcome = None
         if follow_source_enabled(shape):
+            self.outcome = "follow_source"
             # 开发者模式：以来源目录为准，运行前检查已按来源同步过；更新会把开发者的
             # 改动换成发行版，私有渠道也不该有更新登记进来。源码形态压根没有发行包可更新。
             mode = (
@@ -1268,11 +1284,8 @@ class MaaFWProjectSession:
         from maafw_project_update.host.live_projects import (
             reconcile_in_background,
         )
-        from maafw_agent_env.host.pool_reconcile import (
-            previous_maafw_version,
-        )
 
-        previous_version = await asyncio.to_thread(previous_maafw_version, project_path)
+        previous_version = await _previous_maafw_version(project_path)
 
         # 用户点停止时 ``CancelledError`` 从 await 上抛出，但下游不会自己停：
         # 下载与预检期间的 uv 安装都靠同一个令牌终止，staging 随后丢弃。与
@@ -1319,6 +1332,7 @@ class MaaFWProjectSession:
             raise
         if not finished:
             # 收尾里的运行后更新：外层取消被基类挡住，停止经 :meth:`stop` 传进来。
+            self.outcome = "stopped"
             self._point("script_update", "cancelled", phase)
             await abort_update()
             return None
@@ -1335,12 +1349,15 @@ class MaaFWProjectSession:
                 # 分支（取消发生在 shield 之外）：照样别把「已中止」说成失败。
                 # 这里不复用 ``_describe_update_cancel``：那套文案是「正在停」，
                 # 事已停下再说「正在中止」只会让人以为还在等。
+                self.outcome = "stopped"
                 self._point("script_update", "cancelled", phase)
                 logger.info(f"MFW 项目{phase_zh}更新已中止：{reason}")
                 self._log("MFW 项目更新已中止")
                 return None
+            self.outcome = "failed"
             self._point("script_update", "failed", phase)
             if precheck_failure and getattr(exc, "post_validate_rejected", False):
+                self.outcome = "precheck_rejected"
                 # 预检没过、新版本已丢弃：视图还是原样、照常能跑。这是「不升级」
                 # 而不是事故，只发一次 warning（D2）；其它失败仍是 error。
                 text = describe_precheck_failure(phase_zh, precheck_failure)
@@ -1348,6 +1365,7 @@ class MaaFWProjectSession:
                 self._log(text)
                 return MaaFWProjectNotice("warning", text)
             if getattr(exc, "check_unreachable", False):
+                self.outcome = "check_unreachable"
                 # 查版本时连不上更新源：与只看 GitHub 的项目同一口径，只记一行日志、
                 # 不弹错误——否则断网期间每次运行都报一次。下载、应用阶段的失败与
                 # CDK 之类要用户处理的错误不走这里。
@@ -1364,12 +1382,15 @@ class MaaFWProjectSession:
 
         updated = bool(_result_field(result, "updated"))
         if updated:
+            self.outcome = "updated"
             self._point("script_update", "succeeded", "updated")
         elif _result_field(result, "checked") and not _result_field(
             result, "update_available"
         ):
+            self.outcome = "no_update"
             self._point("script_update", "succeeded", "no_update")
         else:
+            self.outcome = "skipped"
             self._point("script_update", "skipped", phase)
         if outcome.registered_id:
             # 登记成功就意味着预检建出了环境，这个版本上次失败的备忘（若有）作废。
@@ -1448,8 +1469,10 @@ class MaaFWProjectSession:
         project_path = resolve_maafw_project_root(request.script_id, shape).resolve()
 
         # 更新已经放掉了项目锁。拿不到说明另有准备/运行在跑，那份准备一样管用。
+        self.outcome = None
         reservation_key = await try_reserve_project_path(project_path)
         if reservation_key is None:
+            self.outcome = "busy"
             self._log("项目正被占用，跳过本次运行环境确认")
             return None
 
@@ -1511,6 +1534,7 @@ class MaaFWProjectSession:
         try:
             if not await self._await_or_stop(prepare_task):
                 # 收尾里的确认：外层取消被基类挡住，停止经 :meth:`stop` 传进来。
+                self.outcome = "stopped"
                 await abort_prepare()
                 self._log("已中止运行环境确认，下次运行前再确认")
                 return None
@@ -1519,6 +1543,7 @@ class MaaFWProjectSession:
             await abort_prepare()
             raise
         except Exception as exc:  # noqa: BLE001 - 准备失败不阻断运行
+            self.outcome = "failed"
             reason = sanitize_log_message(str(exc)).strip() or type(exc).__name__
             logger.opt(exception=True).warning(
                 f"MFW {phase_zh}运行环境确认失败，任务继续：{reason}"
@@ -1536,10 +1561,13 @@ class MaaFWProjectSession:
         # 一遍 prepare 只是池命中 + 解释器 ABI 探针，几秒。
         if prepared and health_warnings:
             # 与准备里那行「检查没通过、按报错照跑放行」一致，不说「准备完成」
+            self.outcome = "prepared_lenient"
             message = f"{phase_zh}运行环境已重新准备（检查没通过，照常启动）"
         elif prepared:
+            self.outcome = "prepared"
             message = f"{phase_zh}运行环境已重新准备完成"
         else:
+            self.outcome = "unchanged"
             message = "项目文件没有变化，运行环境沿用上次的准备结果"
         self._log(message)
         return None
@@ -1609,10 +1637,15 @@ class MaaFWProjectSession:
         from maafw_project_update.host.view_update import memo_path_factory
 
         shape = _config_shape(request)
+        self.prefetch_skip_reason = None
         # 增量依赖启动时的当前载荷，交给运行前更新，避免提前下载全量。
         if request.package_mode == "incremental":
+            self.prefetch_skip_reason = "incremental"
             return
         if resolve_auto_update_mode(shape) == "Off" or follow_source_enabled(shape):
+            self.prefetch_skip_reason = (
+                "off" if resolve_auto_update_mode(shape) == "Off" else "follow_source"
+            )
             return
         credentials = resolve_update_credentials(shape)
         project = resolve_maafw_project_root(request.script_id, shape).resolve()
@@ -1623,6 +1656,7 @@ class MaaFWProjectSession:
         if marker is None or not marker.get("lineage"):
             # No trustworthy lineage: leave update discovery to the normal
             # startup path, which can recover and revalidate project metadata.
+            self.prefetch_skip_reason = "no_lineage"
             return
         identity = (
             project,
@@ -1646,6 +1680,7 @@ class MaaFWProjectSession:
             or discovery.candidate is None
             or not discovery.candidate.download_url
         ):
+            self.prefetch_skip_reason = "no_candidate"
             return
         candidate = discovery.candidate
 

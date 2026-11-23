@@ -706,21 +706,18 @@ async def _run_apply(req: _UpdateRequest) -> tuple[Any, str | None] | MaaFWApiRe
     其余异常原样抛出，由 :func:`_apply_project_update` 映射成 HTTP 错误。
     """
 
-    # 这几个模块会拉起 runtime_pool 与 agent_env，只在真要用时导入。
-    from maafw_agent_env.core.runtime_pool import MaaFWRuntimePoolService
+    from maafw_native.requirement import project_exact_maafw_version
     from maafw_project_update.host.env_confirm import (
         confirm_switched_environment,
     )
-    from maafw_agent_env.host.pool_reconcile import previous_maafw_version
-    from maafw_agent_env.host.runtime_route import (
-        runtime_pool_route_from_service,
-    )
+    from maafw_project_update.host.project_session import _runtime_pool_route_async
 
-    route = await asyncio.to_thread(
-        lambda: runtime_pool_route_from_service(MaaFWRuntimePoolService())
-    )
+    # 运行池路由（agent 环境的 ``runtime_route``）：只用来定预检根。失败原文照旧往上抛。
+    route = await _runtime_pool_route_async()
     # 记下更新前钉定的 maafw 版本：切换后若换了版本，旧 runtime 不必再等宽限。
-    previous_version = await asyncio.to_thread(previous_maafw_version, req.root_path)
+    previous_version = await asyncio.to_thread(
+        project_exact_maafw_version, req.root_path
+    )
     session = UpdateSession(
         req.script_id,
         channel=req.channel,

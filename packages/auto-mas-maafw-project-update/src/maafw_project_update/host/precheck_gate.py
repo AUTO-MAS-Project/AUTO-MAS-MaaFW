@@ -60,13 +60,12 @@ from maafw_project_update.core.project_update.precheck_memo import (
     read_runtime_precheck,
     write_runtime_precheck,
 )
-from maafw_agent_env.core.runtime_pool.binding_fallback import (
-    pep440_to_maafw_tag,
-)
-from maafw_agent_env.core.runtime_pool.installer import (
+# 版本换算与包索引的两个读法在原生库识别库（agent 环境的安装器读同一份）
+from maafw_native.subprocess_env import (
     is_package_index_offline,
     resolve_package_index_candidates,
 )
+from maafw_native.versions import pep440_to_maafw_tag
 from auto_mas_core.host.utils import get_logger
 
 logger = get_logger("MFW 预检备忘")
