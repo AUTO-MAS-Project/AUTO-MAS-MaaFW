@@ -341,6 +341,9 @@ def _project_flavor_mismatch(
         )
         return None
     try:
+        if getattr(mismatch, "wants_project_root", False):
+            # 新形属主（服务）自己读 interface：给它 interface 所在的目录（同进程同一份缓存）
+            return mismatch(interface, project_root=interface_base)
         return mismatch(interface)
     except Exception as exc:  # noqa: BLE001 - 识别出错不该挡住导入
         logger.warning(f"MFW 托管属主识别项目失败，不拦截：{exc}")

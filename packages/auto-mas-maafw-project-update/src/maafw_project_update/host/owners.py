@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -50,6 +51,45 @@ NOT_MAAFW_MESSAGE = "托管配置类型错误, 不是 MFW 类型"
 # ---------------------------------------------------------------------------
 # 入口的数据形状（普通数据）
 # ---------------------------------------------------------------------------
+
+
+def restore_imported_at(value: Any) -> Any:
+    """``ImportedAt`` 还原成 datetime：ISO 8601 字符串用 ``datetime.fromisoformat`` 转回；datetime、
+    ``None``、空串与解析不了的原样返回。"""
+
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.strip())
+        except ValueError:
+            return value
+    return value
+
+
+def _json_text(value: Any) -> Any:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if hasattr(value, "__fspath__"):
+        return str(value.__fspath__())
+    return str(value)
+
+
+def _json_time(value: Any) -> Any:
+    if value is None or isinstance(value, str):
+        return value
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        return str(isoformat())
+    return str(value)
+
+
+def _json_report(value: Any) -> Any:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, Mapping):
+        return {str(key): _json_report(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_report(item) for item in value]
+    return _json_text(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +116,58 @@ class ManagedRecord:
     proxy_address: Any = field(repr=False)
     mirror_cdk: Any = field(repr=False)
     running: bool
+
+    def __post_init__(self) -> None:
+        # 时刻只在这一处还原：新形属主（服务）交来的是 ISO 字符串，旧形属主（``BuiltinConfigOwner``）
+        # 交来的是配置里的 datetime 原值，两边都经这里归一成 datetime（``embedded_status_data`` 要调
+        # ``.isoformat()``）。解析不了的原样留着。
+        object.__setattr__(self, "imported_at", restore_imported_at(self.imported_at))
+
+    @classmethod
+    def from_payload(cls, data: Mapping[str, Any]) -> ManagedRecord:
+        """托管记录的字典形（项目服务请求里的 ``record``、属主服务 ``list`` / ``read`` 回的）还原成记录。"""
+
+        return cls(
+            uid=str(data.get("uid") or ""),
+            kind=str(data.get("kind") or ""),
+            order=int(data.get("order") or 0),
+            name=data.get("name"),
+            source_path=data.get("source_path"),
+            report=data.get("report"),
+            source_version=data.get("source_version"),
+            imported_at=data.get("imported_at"),
+            follow_source=bool(data.get("follow_source")),
+            channel=data.get("channel"),
+            update_source=data.get("update_source"),
+            auto_update_mode=data.get("auto_update_mode"),
+            package_mode=data.get("package_mode"),
+            proxy_address=data.get("proxy_address"),
+            mirror_cdk=data.get("mirror_cdk"),
+            running=bool(data.get("running")),
+        )
+
+    def to_payload(self) -> dict[str, Any]:
+        """记录的字典形（只含 JSON 值，``imported_at`` 出 ISO 字符串），与专项共用库的 ``record_payload``
+        同形。``proxy_address``、``mirror_cdk`` 是机密，不得写进日志。"""
+
+        return {
+            "uid": self.uid,
+            "kind": self.kind,
+            "order": self.order,
+            "name": _json_text(self.name),
+            "source_path": _json_text(self.source_path),
+            "report": _json_report(self.report),
+            "source_version": _json_text(self.source_version),
+            "imported_at": _json_time(self.imported_at),
+            "follow_source": bool(self.follow_source),
+            "channel": _json_text(self.channel),
+            "update_source": _json_text(self.update_source),
+            "auto_update_mode": _json_text(self.auto_update_mode),
+            "package_mode": _json_text(self.package_mode),
+            "proxy_address": _json_text(self.proxy_address),
+            "mirror_cdk": _json_text(self.mirror_cdk),
+            "running": bool(self.running),
+        }
 
     @property
     def view_name(self) -> str:
