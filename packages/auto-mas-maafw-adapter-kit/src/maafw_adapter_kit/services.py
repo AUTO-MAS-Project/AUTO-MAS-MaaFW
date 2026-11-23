@@ -32,6 +32,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, TypeVar
 
 from maafw_interface.service_calls import (
@@ -1020,6 +1021,8 @@ async def open_project(
 ) -> str | None:
     """专项运行前检查里打开项目的整段：返回 None 表示打开了，往下走；字符串是给用户的那句。
 
+    ``request`` 用 :func:`open_request` 组，带上这一轮开始的时刻（``round_started_at``）。
+
     - 拿不到预约：返回 ``open_start`` 的跳过原文（``SKIP_*``，专项照旧 ``in BENIGN_SKIPS`` 判良性跳过）；
     - ``inside(opener, 结局)``：在预约里、受 :meth:`ProjectOpener.hold` 保护的那段（写回项目记录、看
       ``opener.stopping``、记 lease、补默认队列），返回问题原句或 None；
@@ -1539,10 +1542,27 @@ def open_request(
     owner: str,
     record: Mapping[str, Any],
     script_name: str | None = None,
+    round_started_at: float | datetime | str | None = None,
 ) -> dict[str, Any]:
+    """``round_started_at``：这一轮开始的时刻（专项的 ``time.time()``），过边界出 ISO 8601 字符串；
+    项目更新还原成秒数交给会话（原先打开项目的会话请求里就带着它）。不传就不带（提供方缺省 0）。"""
+
     request = {"script_id": str(script_id), "owner": str(owner), "record": dict(record)}
-    request.update(_optional(script_name=script_name))
+    request.update(
+        _optional(script_name=script_name, round_started_at=_instant(round_started_at))
+    )
     return request
+
+
+def _instant(value: float | datetime | str | None) -> str | None:
+    """时刻出 ISO 8601 字符串：秒数（``time.time()``）按本地时区带偏移出，datetime 出 ``isoformat()``，
+    字符串原样，空值 None。"""
+
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return datetime.fromtimestamp(float(value), timezone.utc).astimezone().isoformat()
 
 
 def handle_request(handle: str) -> dict[str, Any]:

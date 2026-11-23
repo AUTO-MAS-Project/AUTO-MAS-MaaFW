@@ -5,6 +5,7 @@
 - 从运行积木整份搬来专项账号流程用的那组模块：`attempt_ledger`、`run_record`、`run_report`、`run_messages`、`run_notices`、`run_verdict`、`signal_notice`、`proxy_quota`、`run_settings`、`telemetry_project`、`host_client`，另从 `device_config` 切出 `device_state`（`MaaFWAdbDeviceState`、`choose_game_package`、`optional_int`）。文案、判定与记账口径一字不动；只是改读解析库的 `run_events` 与信号常量，记账的附件收运行结果里的字典，`judge_attempt` 认运行服务的失败 code（`run_timeout`、`pretask_failed`），`host_client` 的事件出口改成收字典的回调，`format_user_log_line` 多一个可选的事件时刻 `at`。运行积木里的原模块照旧可用。
 - 新模块 `services`（专项调三块服务插件的那一层：服务槽、客户端、结果与异常、长操作与同步停止、事件分派、打开项目与交回运行预约两个助手、操作名常量元组、各请求构造函数）与 `project_texts`（三句良性跳过原文与打开项目失败的那句话）。
 - `owner_entry` 加属主服务的新形：`record_payload`（托管记录转成只含 JSON 值的字典，导入时间出 ISO 字符串）、`ConfigOwner`、`OwnerServiceMixin`、`owner_provides`、`write_or_raise`；旧的 `BuiltinConfigOwner` 原样保留。
+- `services.open_request` 多一个可选的 `round_started_at`（这一轮开始的时刻，过边界出 ISO 字符串）：原先打开项目的会话请求里就带着它，项目更新收尾清原生日志备份要用；不传就不带。
 - `default_snapshot`、`option_secrets` 算视图目录、判视图健康改读两块库（`maafw_native.layout.view_dir`、`maafw_interface.interface.loader.has_interface_file`，与项目更新同一算法），不再在函数体内导入项目更新。新依赖 `auto-mas-maafw-native`。
 
 ## [0.2.0] - 2026-11-22
