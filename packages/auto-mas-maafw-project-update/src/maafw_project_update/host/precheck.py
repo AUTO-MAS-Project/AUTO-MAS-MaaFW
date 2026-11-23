@@ -31,8 +31,8 @@ MaaFgo v2.0.03 漏装了 ``agent/battle/runtime/``，解释器能 ``import maa``
 ``ModuleNotFoundError``。启动时必然 import 的项目模块不在就同样丢弃新版本；第三方包缺失等
 只记日志。检查自身出任何意外都放行（宁可漏报，不可误拒）。
 
-建环境、导入检查、临时 agent 目录的放置与回收归 agent 环境一侧（``env_trial.py`` 的
-``trial_environment``）；这里只查新版本自带的原生库能不能加载、记失败原因与备忘、构造回调。
+建环境、导入检查、临时 agent 目录的放置与回收归 agent 环境一侧（agent 环境插件的 ``trial`` 服务，
+经线程桥调）；这里只查新版本自带的原生库能不能加载、记失败原因与备忘、构造回调。
 回调跑在工作线程里，不拿锁、不 await。运行前自动更新
 （``project_session``）与手动更新（``/maafw/update``）共用同一份逻辑，两边只在
 「要不要读备忘」上不同（手动不读，见 precheck_gate）。
@@ -46,19 +46,20 @@ from collections.abc import Callable, MutableMapping
 from pathlib import Path
 from typing import Any
 
+from auto_mas_core.host.core import Config
+from auto_mas_core.host.utils import get_logger
+
 from maafw_project_update.core.project_update.precheck_memo import (
     classify_precheck_failure,
     write_runtime_precheck,
 )
-from maafw_agent_env.host.env_trial import (
-    KIND_AGENT_MODULE_MISSING,
-    MaaFWAgentImportMissingError,
-    PrepareProjectEnvironment,
-    trial_environment,
-)
-from auto_mas_core.host.utils import get_logger
+from maafw_project_update.host import agent_env_client
 
 logger = get_logger("MFW 更新预检")
+
+#: 新版本的 agent 启动时 import 的项目模块不在（文案分支用；值同 agent 环境
+#: ``import_check.KIND_AGENT_MODULE_MISSING``，也是 ``trial`` 服务的失败 code）。
+KIND_AGENT_MODULE_MISSING = "agent_module_missing"
 
 
 def _resolve_requirement(project_path: Path) -> str | None:
@@ -123,12 +124,47 @@ def check_staging_native_runtime(root: Path, send_log: Callable[[str], None]) ->
     send_log(f"[原生库检查] {location}/MaaFramework.dll 加载正常")
 
 
-def build_precheck_validator(
+def run_trial(
+    root: Path,
     *,
-    prepare: PrepareProjectEnvironment,
+    bridge: agent_env_client.Bridge,
+    pool_root: str | Path,
+    proxy_url: str | None,
     cancel_event: threading.Event,
     send_log: Callable[[str], None],
-    agent_env_root: Path,
+    previous_version: str | None = None,
+) -> None:
+    """在 ``root``（staging）上真建一次运行环境（不写环境缓存）再查 Python agent 的导入：agent 环境的
+    ``trial`` 作业，经线程桥在工作线程里调。建不出来或缺项目模块就 raise（文字是原文）。
+
+    一次性的 agent 目录放在 ``pool_root`` 下的预检根里，由作业放、作业删。``proxy_url`` 是托管级解析
+    出的代理，``None`` 表示没解析过、沿用全局。``cancel_event`` 置位后让作业停下，照常等它结束。
+    """
+
+    request = {
+        "project_path": str(root),
+        "runtime_pool_root": str(pool_root),
+        "proxy_url": proxy_url if proxy_url is not None else Config.proxy_url,
+        "previous_version": previous_version,
+    }
+    agent_env_client.raise_for_failure(
+        agent_env_client.run_job_threadsafe(
+            bridge,
+            "trial",
+            request,
+            on_event=agent_env_client.log_events(send_log),
+            cancel_event=cancel_event,
+        )
+    )
+
+
+def build_precheck_validator(
+    *,
+    bridge: agent_env_client.Bridge,
+    proxy_url: str | None,
+    cancel_event: threading.Event,
+    send_log: Callable[[str], None],
+    pool_root: str | Path,
     failure: MutableMapping[str, Any],
     previous_version: str | None = None,
     project_name: str | None = None,
@@ -136,52 +172,51 @@ def build_precheck_validator(
 ) -> Callable[[Path], bool]:
     """构造 ``post_validate`` 回调（收新载荷的 staging 路径）。
 
-    ``prepare`` 是宿主的 ``project_environment.prepare_project_environment_sync``（不要绕过它直接调
-    ``agent_env.project_env.prepare_project_environment``：route、代理、interface
-    重读都在里面）。``agent_env_root`` 是预检根（``env_trial.precheck_agent_root``）。失败时把 ``{targetVersion, requirement, kind, reason, …}``
+    建环境与导入检查是 agent 环境的 ``trial`` 作业（:func:`run_trial`，线程桥 ``bridge`` 在事件循环上
+    取好；``pool_root`` 是运行池根，预检根在它下面）。失败时把 ``{targetVersion, requirement, kind, reason, …}``
     写进 ``failure``，按 ``memo_path_for(目标版本)`` 落备忘（谱系 + 版本，组共有），
     然后原样 raise 让原因进异常文本；用户取消（``cancel_event`` 已置位）时既不写
-    备忘也不填 ``failure``。D4：不按「requirement 为 None」短路，一律走同一套 prepare。
+    备忘也不填 ``failure``。D4：不按「requirement 为 None」短路，一律走同一套准备。
     """
 
     def validate(root: Path) -> bool:
         send_log("正在检查新版本的运行环境（准备不出来就放弃这次更新，继续用当前版本）")
-        # 预检 venv 不参与跨视图共用：建在这份 staging 专用的子目录里，离开 with 时删掉
-        # （失败原因与备忘先记完再删）
-        with trial_environment(root, agent_env_root) as trial:
-            try:
-                # 原生库加载只要一两秒，放在建环境前面：加载不了就不必再建
-                check_staging_native_runtime(root, send_log)
-                # 已取消就不再查导入：核心包随后按取消收尾
-                trial.prepare_and_check(
-                    prepare,
-                    cancel_event,
-                    send_log,
-                    previous_version=previous_version,
-                )
-            except Exception as exc:
-                if cancel_event.is_set():
-                    raise
-                info = classify_precheck_failure(
-                    root, exc, requirement=_resolve_requirement(root)
-                )
-                if isinstance(exc, MaaFWAgentImportMissingError):
-                    # 备忘里仍按 other 记（冷却一天才自动再试），这里只给文案分支用
-                    info["kind"] = KIND_AGENT_MODULE_MISSING
-                if previous_version:
-                    info["previousVersion"] = str(previous_version)
-                if project_name:
-                    info["projectName"] = str(project_name)
-                failure.clear()
-                failure.update(info)
-                if memo_path_for is not None and info.get("targetVersion"):
-                    try:
-                        write_runtime_precheck(
-                            memo_path_for(str(info["targetVersion"])), info
-                        )
-                    except Exception as memo_error:  # noqa: BLE001
-                        logger.warning(f"写运行环境预检备忘失败：{memo_error}")
+        try:
+            # 原生库加载只要一两秒，放在建环境前面：加载不了就不必再建
+            check_staging_native_runtime(root, send_log)
+            # 已取消就不再查导入：核心包随后按取消收尾（作业里看令牌）
+            run_trial(
+                root,
+                bridge=bridge,
+                pool_root=pool_root,
+                proxy_url=proxy_url,
+                cancel_event=cancel_event,
+                send_log=send_log,
+                previous_version=previous_version,
+            )
+        except Exception as exc:
+            if cancel_event.is_set():
                 raise
+            info = classify_precheck_failure(
+                root, exc, requirement=_resolve_requirement(root)
+            )
+            if getattr(exc, "code", None) == KIND_AGENT_MODULE_MISSING:
+                # 备忘里仍按 other 记（冷却一天才自动再试），这里只给文案分支用
+                info["kind"] = KIND_AGENT_MODULE_MISSING
+            if previous_version:
+                info["previousVersion"] = str(previous_version)
+            if project_name:
+                info["projectName"] = str(project_name)
+            failure.clear()
+            failure.update(info)
+            if memo_path_for is not None and info.get("targetVersion"):
+                try:
+                    write_runtime_precheck(
+                        memo_path_for(str(info["targetVersion"])), info
+                    )
+                except Exception as memo_error:  # noqa: BLE001
+                    logger.warning(f"写运行环境预检备忘失败：{memo_error}")
+            raise
         send_log("新版本运行环境检查通过")
         return True
 
@@ -189,7 +224,9 @@ def build_precheck_validator(
 
 
 __all__ = [
+    "KIND_AGENT_MODULE_MISSING",
     "MaaFWNativeLoadError",
     "build_precheck_validator",
     "check_staging_native_runtime",
+    "run_trial",
 ]

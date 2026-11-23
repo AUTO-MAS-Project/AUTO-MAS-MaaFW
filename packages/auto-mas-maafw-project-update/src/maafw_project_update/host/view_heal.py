@@ -47,6 +47,7 @@ from maafw_project_update.core.project_update.projection_heal import (
     write_missing_files,
 )
 from maafw_project_update.core.project_update.updater import MaaFWProjectUpdateError
+from maafw_project_update.host import agent_env_client
 from maafw_project_update.host.embedded_project import (
     GroupMember,
     embedded_project_dir,
@@ -83,17 +84,16 @@ def _precheck(session: UpdateSession, interface_model: Any) -> Callable[[Path], 
 
     在事件循环上调：导入与预检的组装函数在这里解析好，``validate`` 跑在工作线程里，不再导入。"""
 
-    from maafw_agent_env.core.runtime_pool import MaaFWRuntimePoolService
-    from maafw_agent_env.host.runtime_route import (
-        runtime_pool_route_from_service,
-    )
-
     build_precheck = session.precheck_builder()
+    # 运行池路由要到真预检时才取（agent 环境的 ``runtime_route``，经线程桥）：线程桥在这里取好。
+    bridge = agent_env_client.capture_bridge()
 
     def validate(staging: Path) -> Any:
-        route = runtime_pool_route_from_service(MaaFWRuntimePoolService())
+        route = agent_env_client.raise_for_failure(
+            agent_env_client.call_threadsafe(bridge, "runtime_route")
+        )
         return build_precheck(
-            pool_root=route.root,
+            pool_root=route["root"],
             failure={},
             previous_version=getattr(interface_model, "version", None),
             project_name=getattr(interface_model, "name", None),

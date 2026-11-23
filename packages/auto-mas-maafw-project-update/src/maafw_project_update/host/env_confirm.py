@@ -52,6 +52,8 @@ from typing import Any
 from auto_mas_core.host.utils import get_logger
 from auto_mas_core.host.utils_common_process_scope import current_process_scope
 
+from maafw_project_update.host import agent_env_client
+
 # 切换后确认失败的那行告警沿用手动更新的 logger 名（原先就在 ``api_service/update.py`` 里记）。
 _update_logger = get_logger("MaaFW 项目更新")
 
@@ -79,23 +81,31 @@ def resolve_prepare_environment() -> PrepareEnvironment:
     失败原样抛出，由调用方决定记日志还是当更新失败。
     """
 
-    # 规则 L：agent 环境插件的模块只在函数体内导入（本模块在端点的顶层导入链上）
-    from maafw_agent_env.core.runtime_pool.installer import (
-        install_process_factory_scope,
-    )
     from maafw_project_update.host import project_environment
 
     # 按模块属性现取：测试在 project_environment 上打的补丁要生效
     prepare = project_environment.prepare_project_environment_sync
-    scope = current_process_scope.get()
-    if scope is None:
-        return prepare
+    # 线程桥（事件循环 + 此刻的进程作用域）在这里取好：准备在 agent 环境的作业里做，安装子进程
+    # 登记进的是这一份作用域（与原先 ``install_process_factory_scope(scope.popen)`` 同一份）。
+    # 在没有事件循环的线程里调时（同组传播后的后台确认）用插件启用时记下的事件循环、不设作用域。
+    bridge = _capture_bridge()
 
-    def scoped_prepare(*args, **kwargs):
-        with install_process_factory_scope(scope.popen):
+    def bridged_prepare(*args, **kwargs):
+        token = project_environment._bridge.set(bridge)
+        try:
             return prepare(*args, **kwargs)
+        finally:
+            project_environment._bridge.reset(token)
 
-    return scoped_prepare
+    return bridged_prepare
+
+
+def _capture_bridge() -> agent_env_client.Bridge:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return agent_env_client.fallback_bridge()
+    return agent_env_client.Bridge(loop, current_process_scope.get())
 
 
 def bind_proxy(
@@ -117,10 +127,10 @@ def resolve_update_precheck() -> UpdatePrecheckBuilder:
     才导入。
     """
 
-    from maafw_agent_env.host.env_trial import precheck_agent_root
     from maafw_project_update.host.precheck import build_precheck_validator
 
-    prepare = resolve_prepare_environment()
+    # 预检整条在 agent 环境的 ``trial`` 作业里做，线程桥在事件循环上取好（交给线程的回调里不再取）。
+    bridge = _capture_bridge()
 
     def build(
         *,
@@ -134,10 +144,11 @@ def resolve_update_precheck() -> UpdatePrecheckBuilder:
         memo_path_for: Callable[[str], Path] | None,
     ) -> Callable[[Path], bool]:
         return build_precheck_validator(
-            prepare=bind_proxy(prepare, proxy_url),
+            bridge=bridge,
+            proxy_url=proxy_url,
             cancel_event=cancel_event,
             send_log=send_log,
-            agent_env_root=precheck_agent_root(pool_root),
+            pool_root=pool_root,
             failure=failure,
             previous_version=previous_version,
             project_name=project_name,

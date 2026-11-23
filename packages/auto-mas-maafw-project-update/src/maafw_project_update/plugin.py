@@ -19,7 +19,8 @@ from auto_mas_core import Config, ExtensionPlugin
 from auto_mas_core.host.utils import get_logger
 
 from .api.routes import api_router as _api_router
-from .host import owners
+from .host import owners, service_slot
+from .host.agent_env_client import REQUIRES as _AGENT_ENV_REQUIRES
 
 PACKAGE_NAME = "auto-mas-maafw-project-update"
 PACKAGE_VERSION = "0.2.0"
@@ -42,7 +43,8 @@ logger = get_logger("MFW 项目更新插件")
 class Plugin(ExtensionPlugin):
     """项目副本、视图、导入更新与维护清理；三个专项经 ``owner.register`` 登记属主。"""
 
-    requires = ("maafw.agent_env.v1",)
+    # 用到的 agent 环境操作（15 个，``host/agent_env_client.py``）
+    requires = _AGENT_ENV_REQUIRES
     provides_services = {
         "maafw.project.v1": "call",
         "maafw.project_update.v1": "call",
@@ -135,6 +137,13 @@ class Plugin(ExtensionPlugin):
     # -- 生命周期 ---------------------------------------------------------------
 
     async def on_enable(self) -> None:
+        # 旧函数入口（会话、维护、准备环境……）经这个槽现取解析器调 agent 环境、问属主
+        service_slot.bind(
+            self.services,
+            spawn=lambda factory: self.background_tasks.spawn(
+                factory, retain_result=False
+            ),
+        )
         if os.environ.get(NO_CLEANUP_ENV) == "1":
             logger.warning(f"{NO_CLEANUP_ENV}=1：MFW 维护清理整个跳过")
             return
@@ -164,6 +173,7 @@ class Plugin(ExtensionPlugin):
             owners.set_loaded_signal(None)
             self._signal_injected = False
         self._maintenance = None
+        service_slot.unbind(getattr(self, "services", None))
 
 
 def managed_configs_loaded() -> bool:

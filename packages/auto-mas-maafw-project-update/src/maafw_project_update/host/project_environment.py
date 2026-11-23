@@ -18,25 +18,45 @@
 
 """项目运行环境的准备与确认（宿主侧，项目更新这一块）。
 
-「确认运行环境」= 在项目目录上备好 MaaFramework 运行池与 agent 环境（``agent_env.project_env``），
-成功后写环境缓存、给视图记 ``envConfirmedFor``。运行前 / 运行后确认、更新前预检、切换后确认、
-同组传播后的后台确认都经 ``env_confirm`` 取到这里的 :func:`prepare_project_environment_sync`
-（``env_confirm`` 按模块属性取，测试可以在这里打补丁）。
+「确认运行环境」= 在项目目录上备好 MaaFramework 运行池与 agent 环境（agent 环境插件的 ``prepare``
+服务），成功后写环境缓存、给视图记 ``envConfirmedFor``。运行前 / 运行后确认、切换后确认、同组传播后
+的后台确认都经 ``env_confirm`` 取到这里的 :func:`prepare_project_environment_sync`（``env_confirm`` 按
+模块属性取，测试可以在这里打补丁）。更新前预检改走 agent 环境的 ``trial`` 服务（``precheck.py``）。
 
-顶层只有轻量导入：运行池与 agent 环境只在函数体里导入（这个函数本来就在工作线程里跑，与原先
-管理器里的那份同一做法）。日志沿用「MFW 内置运行」这个 logger 名。
+这个函数在工作线程里跑：经线程桥（``agent_env_client``）调 ``env_lookup`` 与 ``prepare_*``，线程桥由
+``env_confirm.resolve_prepare_environment`` 在事件循环上取好（:data:`_bridge`），没有时用插件启用时
+记下的事件循环。日志沿用「MFW 内置运行」这个 logger 名。
 """
 
 from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Any
 
 from auto_mas_core.host.core import Config
 from auto_mas_core.host.utils import get_logger
 
+from maafw_project_update.host import agent_env_client
+from maafw_project_update.host.embedded_project import (
+    mark_env_confirmed,
+    read_view_marker,
+)
+
 logger = get_logger("MFW 内置运行")
+
+#: 「报错照跑」放行时那一行（原文不变）。
+LENIENT_PASS_LOG = (
+    "运行环境检查没通过、按「报错照跑」放行，这次不记为「运行环境已就绪」，"
+    "下次运行前再查"
+)
+
+#: 调用方在事件循环上取好的线程桥（``env_confirm`` 在工作线程里调本函数前设好）。
+_bridge: ContextVar[agent_env_client.Bridge | None] = ContextVar(
+    "maafw_project_update_env_bridge", default=None
+)
 
 
 def prepare_project_environment_sync(
@@ -58,10 +78,9 @@ def prepare_project_environment_sync(
     先比指纹：项目没更新过、上次准备的环境也还在盘上，就只是一次哈希加
     几个 stat，直接跳过。
 
-    更新事务的提交前预检也走这里（``tools/embedded/precheck.py``），只是
-    把 isolated_venv 的 agent 建到 ``agent_env_root``（池根下的预检目录）
-    并且 ``store_cache=False`` 不写环境缓存（D6）。手动更新的 API 路径没有
-    manager 实例，也用同一份逻辑。
+    更新事务的提交前预检原先也走这里（``agent_env_root`` 指池根下的预检目录、``store_cache=False``）；
+    现在由 agent 环境的 ``trial`` 服务做同一条流水线（``precheck.py``），给了 ``agent_env_root`` 就报
+    ``NotImplementedError``。手动更新的 API 路径没有 manager 实例，也用同一份逻辑。
 
     ``proxy_url`` 是托管级解析出来的代理（``None`` 表示没解析过，沿用
     全局），给池里的 uv / pip 与 agent venv 的安装用。
@@ -72,27 +91,13 @@ def prepare_project_environment_sync(
     ``envConfirmedFor``：下次照样重查，编辑页也不会因此显示「已就绪」。
     """
 
-    # 与 API 侧同理：这几个模块会拉起 runtime_pool 与 agent_env，只在真要
-    # 用时导入。
-    from maafw_agent_env.core.agent_env.project_env import (
-        prepare_project_environment,
-        project_environment_fingerprint,
-    )
-    from maafw_interface.interface import load_interface_model_cached
-    from maafw_agent_env.core.runtime_pool.host_environment import (
-        subprocess_proxy_scope,
-    )
-    from maafw_project_update.host.embedded_project import (
-        mark_env_confirmed,
-        read_view_marker,
-    )
-    from maafw_agent_env.host.env_cache import (
-        load_prepared_environment,
-        store_prepared_environment,
-    )
-    from maafw_agent_env.host.runtime_route import (
-        resolve_runtime_pool_route,
-    )
+    if agent_env_root is not None:
+        # 预检的一次性 agent 目录归 agent 环境的 ``trial`` 服务放、删（``precheck.py``）；
+        # ``prepare`` 服务不收自定的 agent 目录，这里不能悄悄建进正式根。
+        raise NotImplementedError(
+            "运行环境预检改由 agent 环境的 trial 服务做，不再收 agent_env_root"
+        )
+    bridge = _bridge.get() or agent_env_client.fallback_bridge()
 
     # 视图挂的载荷在算指纹之前记下：确认成功后只给这个载荷记 ``envConfirmedFor``
     # （调用方持有视图预约，期间换不了；来源目录 / staging 没有标记，不记）。
@@ -107,45 +112,42 @@ def prepare_project_environment_sync(
         except OSError as exc:
             logger.warning(f"MFW 记录运行环境确认失败（下次运行前再确认）：{exc}")
 
-    fingerprint = project_environment_fingerprint(project_path)
-    if load_prepared_environment(project_path, fingerprint) is not None:
+    # 指纹与缓存（agent 环境的 ``env_lookup``）：项目没更新过、上次准备的环境也还在盘上就跳过。
+    lookup = agent_env_client.raise_for_failure(
+        agent_env_client.call_threadsafe(
+            bridge, "env_lookup", {"project_path": str(project_path)}
+        )
+    )
+    if lookup.get("cached") is not None:
         _confirmed()
         return False
 
-    interface = load_interface_model_cached(project_path)
-    route = resolve_runtime_pool_route()
-    # 代理作用域按线程登记，必须在这个同步函数体内进入：池的 uv / pip 子进程
-    # 与 agent venv 的安装都从 strip_host_python_environment 拿到用户在 MAS
-    # 里填的代理（§2.4）。预检回调与运行前确认都经过这里。
-    with subprocess_proxy_scope(
-        proxy_url if proxy_url is not None else Config.proxy_url
-    ):
-        result = prepare_project_environment(
-            project_path,
-            interface,
-            runtime_pool_root=route.root,
-            runtime_pool_id=route.pool_id,
-            agent_env_root=agent_env_root,
-            send_log=send_log,
+    # 读 interface、解析运行池路由、进代理作用域、准备，都在 agent 环境的 ``prepare`` 作业里，先后
+    # 与原先相同；代理给最终生效值（没解析过就跟随全局）。写环境缓存也由作业做（有「报错照跑」
+    # 放行的原因时不写），用这里的指纹兜底。
+    request: dict[str, Any] = {
+        "project_path": str(project_path),
+        "proxy_url": proxy_url if proxy_url is not None else Config.proxy_url,
+        "lenient_health_check": bool(lenient_health_check),
+        "store_cache": bool(store_cache),
+        "fallback_fingerprint": lookup.get("fingerprint"),
+    }
+    result = agent_env_client.raise_for_failure(
+        agent_env_client.run_job_threadsafe(
+            bridge,
+            "prepare",
+            request,
+            on_event=agent_env_client.log_events(send_log),
             cancel_event=cancel_event,
-            lenient_health_check=lenient_health_check,
         )
-    agents = result.get("agents")
-    health_warnings = agents.get("healthWarnings") if isinstance(agents, dict) else None
+    )
+    health_warnings = [str(item) for item in result.get("health_warnings") or ()]
     if health_warnings:
         if health_warnings_out is not None:
-            health_warnings_out.extend(str(item) for item in health_warnings)
-        send_log(
-            "运行环境检查没通过、按「报错照跑」放行，这次不记为「运行环境已就绪」，"
-            "下次运行前再查"
-        )
+            health_warnings_out.extend(health_warnings)
+        send_log(LENIENT_PASS_LOG)
         return True
     if store_cache:
-        store_prepared_environment(
-            project_path,
-            str(result.get("projectFingerprint") or "") or fingerprint,
-            result,
-        )
         _confirmed()
     return True
 
