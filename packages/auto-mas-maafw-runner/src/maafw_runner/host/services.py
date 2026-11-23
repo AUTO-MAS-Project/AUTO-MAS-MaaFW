@@ -834,18 +834,30 @@ class RunnerServices:
         if account is None:
             return self._unknown_account()
         confirm = account.pretasks.exit_confirmation()
-        # after_scope：调用方此刻的进程作用域（作业任务在这次调用里建，读的也是它），收尾后再等确认
-        scope = self._process_scope() if parsed.after_scope else None
+        # 调用方此刻的进程作用域（作业任务在这次调用里建，上下文里带着它）。after_scope：收尾后再等确认
+        scope = self._process_scope()
+        wait_scope = scope if parsed.after_scope else None
 
         async def body(job: ServiceJob) -> dict[str, Any]:
-            finished = getattr(scope, "finished", None)
+            finished = getattr(wait_scope, "finished", None)
             if finished is not None:
                 await finished.wait()
             return {"ok": True, "confirmed": bool(await confirm())}
 
-        return self._start_account_job(
+        started = self._start_account_job(
             account, "pretask_exit_watch", body, stoppable=False
         )
+        job = (
+            self._handles.get("pretask_exit_watch", started)
+            if started.get("ok")
+            else None
+        )
+        retain = getattr(scope, "retain_worker", None)
+        if job is not None and job.task is not None and callable(retain):
+            # 作用域收尾时宿主取消上下文里带着它、又不在保留集合里的任务（之后才置 finished）：
+            # 确认作业要活过这一步（原来等确认的那个后台任务也登记成了保留任务）
+            retain(job.task)
+        return started
 
     async def pretask_exit_watch_poll(self, request: Any = None) -> dict[str, Any]:
         return await self._poll("pretask_exit_watch", request)
