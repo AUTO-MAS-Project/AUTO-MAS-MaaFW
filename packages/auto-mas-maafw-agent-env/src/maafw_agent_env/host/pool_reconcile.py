@@ -69,14 +69,13 @@ from maafw_agent_env.core.agent_env.venv_share import (
     isolated_venv_guard,
 )
 from maafw_native.requirement import (
-    resolve_project_maafw_requirement,
+    project_exact_maafw_version,
 )
 from maafw_agent_env.core.runtime_pool import MaaFWRuntimePoolService
 from maafw_agent_env.core.runtime_pool.binding import (
     prune_selections,
     retained_versions,
 )
-from maafw_agent_env.core.runtime_pool.identity import infer_exact_maafw_version
 from ._logging import get_logger
 
 logger = get_logger("MFW 运行池回收")
@@ -448,13 +447,12 @@ def previous_maafw_version(project_path: str | Path) -> str | None:
 
     更新提交后拿它与新版本比：版本换了就把旧版本作为 ``replaced_versions`` 传给
     回收，旧 runtime 不必再等 24 h 宽限。
+
+    实现在原生库识别库 ``maafw_native.requirement.project_exact_maafw_version``：项目更新记旧版本
+    与这里回收时比对用的是同一份。
     """
 
-    try:
-        requirement = resolve_project_maafw_requirement(Path(project_path))
-    except Exception:  # noqa: BLE001 - 读不出来就当没有精确版本
-        return None
-    return infer_exact_maafw_version(requirement)
+    return project_exact_maafw_version(project_path)
 
 
 def reconcile_after_project_update(
