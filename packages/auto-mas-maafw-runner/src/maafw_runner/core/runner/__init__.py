@@ -6,10 +6,8 @@ from importlib import import_module
 # hotkey、task_selection、plan_transforms）已进解析库 ``maafw_interface.runner``，
 # 解析侧的名字从那里取。借还运行环境（``MaaFWRunnerEnvironment`` 等）已挪到宿主侧
 # ``maafw_runner.host.environment``，改走 agent 环境的服务（MFW 服务化实施方案 §5），
-# ``core`` 不再导出它们；``service`` 只剩建计划的薄壳。
-_LAZY_EXPORTS = {
-    "MaaFWRunnerService": ".service",
-}
+# ``core`` 不再导出运行环境与旧建计划薄壳。
+_LAZY_EXPORTS = {}
 
 
 def __getattr__(name: str):
@@ -24,6 +22,4 @@ def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 
-__all__ = [
-    "MaaFWRunnerService",
-]
+__all__ = []
