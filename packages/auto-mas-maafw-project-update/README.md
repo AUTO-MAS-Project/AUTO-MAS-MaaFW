@@ -15,11 +15,10 @@ MFW 插件族的「项目更新」服务插件（插件标识 `maafw_project_upd
 三个专项共用的配置胶水（默认任务快照、选项密码、账号更新准备、备份归档、属主入口）0.1.0 放在本包
 `glue/` 下，之后搬进了库 `auto-mas-maafw-adapter-kit`（`maafw_adapter_kit`）。
 
-对外服务：`maafw.project.v1` 与 `maafw.project_update.v1`，都指向同一个分发方法
-`call(op, /, **kwargs)`。0.1.0 实现的 op：`version`、`owner.register(name, service)`、
-`owner.unregister(name)`。依赖 `maafw.agent_env.v1`。
-
+对外服务按操作拆分为 `maafw.project.v1.<操作>` 与 `maafw.project_update.v1.<操作>`，属主通过 `owner_register(name, prefix)` 与 `owner_unregister` 管理。依赖 `maafw.agent_env.v1`。
 0.1.0 是联调版本，已知取舍见本包所在仓库的拆分契约文档。环境变量 `AUTO_MAS_MFW_NO_CLEANUP=1`
 时插件不跑任何维护清理（联调保护）。
 
 开发时把本目录联接到宿主的 `plugins/maafw_project_update`，通过插件中心加载。
+
+
