@@ -101,195 +101,7 @@ def _patch_data(patch: RecordPatch) -> dict[str, Any]:
     return data
 
 
-class BuiltinConfigOwner:
-    """宿主托管表里某一种确切类型的托管的属主入口。"""
-
-    owner_protocol = OWNER_PROTOCOL
-
-    def __init__(
-        self,
-        name: str,
-        config_type: Callable[[], type],
-        *,
-        host: Callable[[], Any] = _host_config,
-        plan_rules: MaaFWPlanRules = EMPTY_PLAN_RULES,
-        project_mismatch: Callable[[MaaFWInterface], str | None] | None = None,
-    ) -> None:
-        self.name = name
-        self._config_type = config_type
-        self._host = host
-        self._tickets: dict[str, tuple[str, Any]] = {}
-        # 项目更新经 ``owners.owner_plan_rules`` / ``owner_project_mismatch`` 读这两项（取代风味）
-        self.plan_rules = plan_rules
-        self.project_mismatch = project_mismatch
-
-    def _mine(self, config: Any) -> bool:
-        return type(config) is self._config_type()
-
-    def _lookup(self, script_id: str) -> tuple[str, Any] | ReadResult:
-        ReadResult = _owners().ReadResult
-        try:
-            uid = uuid.UUID(str(script_id))
-        except ValueError as exc:
-            return ReadResult("invalid_id", detail=str(exc))
-        try:
-            config = self._host().ScriptConfig[uid]
-        except KeyError as exc:
-            return ReadResult("missing", detail=str(exc))
-        except ValueError as exc:
-            return ReadResult("invalid_id", detail=str(exc))
-        if not self._mine(config):
-            return ReadResult("not_mine")
-        return str(uid), config
-
-    # -- 读 -----------------------------------------------------------------
-
-    def list_managed(self) -> OwnerListing:
-        host = self._host()
-        # 有托管因所属插件不可用而旁挂时为假（宿主的 managed_configs_loaded）；旧宿主没有这个出口时
-        # 退回旧名 script_config_loaded_intact
-        loaded = getattr(host, "managed_configs_loaded", None)
-        if loaded is None:
-            loaded = host.script_config_loaded_intact
-        ready = bool(loaded())
-        items = tuple(
-            _record(str(uid), config, order)
-            for order, (uid, config) in enumerate(host.ScriptConfig.items())
-            if self._mine(config)
-        )
-        return _owners().OwnerListing(ready=ready, items=items)
-
-    def read_managed(self, script_id: str) -> ReadResult:
-        ReadResult = _owners().ReadResult
-        found = self._lookup(script_id)
-        if isinstance(found, ReadResult):
-            return found
-        uid, config = found
-        order = next(
-            (
-                index
-                for index, key in enumerate(self._host().ScriptConfig.keys())
-                if str(key) == uid
-            ),
-            0,
-        )
-        return ReadResult("mine", record=_record(uid, config, order))
-
-    def check_source_path(self, script_id: str, path: str) -> PathCheck:
-        owners = _owners()
-        ReadResult, PathCheck = owners.ReadResult, owners.PathCheck
-        found = self._lookup(script_id)
-        if isinstance(found, ReadResult):
-            return PathCheck("error", found.detail or "托管不存在")
-        _uid, config = found
-        try:
-            validated = type(config.Info).model_validate({"Path": path})
-        # 路径里的符号链接成环时，Python 3.12 的 Path.resolve 抛 RuntimeError
-        except (ValueError, RuntimeError) as exc:
-            return PathCheck("error", str(exc))
-        if validated.Path is None:
-            return PathCheck("cleared")
-        return PathCheck("ok")
-
-    # -- 写 -----------------------------------------------------------------
-
-    async def lock_managed(self, script_id: str) -> str | None:
-        ReadResult = _owners().ReadResult
-        found = self._lookup(script_id)
-        if isinstance(found, ReadResult):
-            return None
-        uid, config = found
-        ticket = await config.try_lock_x()
-        if ticket is None:
-            return None
-        ticket_id = uuid.uuid4().hex
-        self._tickets[ticket_id] = (uid, ticket)
-        return ticket_id
-
-    async def unlock_managed(self, script_id: str, ticket_id: str) -> None:
-        uid, ticket = self._tickets.pop(ticket_id)
-        if uid != str(uuid.UUID(str(script_id))):
-            raise ValueError("导入锁票据与托管不符")
-        await self._host().ScriptConfig[uuid.UUID(uid)].unlock(ticket)
-
-    async def write_record(
-        self, script_id: str, patch: RecordPatch, *, ticket: str | None = None
-    ) -> WriteResult:
-        owners = _owners()
-        ReadResult, WriteResult = owners.ReadResult, owners.WriteResult
-        data = _patch_data(patch)
-        if ticket is not None:
-            # 调用方持着这个托管的 X 票：直接提交原节点；Config.update_script 的外部编辑入口
-            # 会拒绝一切已锁节点，不能用于持票的内部写回。
-            uid, _ticket = self._tickets[ticket]
-            if uid != str(uuid.UUID(str(script_id))):
-                raise ValueError("导入锁票据与托管不符")
-            config = self._host().ScriptConfig[uuid.UUID(uid)]
-            await config.update(type(config).model_validate(data))
-            return WriteResult(True)
-        found = self._lookup(script_id)
-        if isinstance(found, ReadResult):
-            if found.status == "missing":
-                return WriteResult(False, "not_found", found.detail)
-            return WriteResult(False, "rejected", found.detail or "托管不归这个属主")
-        try:
-            # 托管 id 原样交给宿主（它会记进日志）
-            await self._host().update_script(str(script_id), data)
-        except RuntimeError as exc:
-            return WriteResult(False, "rejected", str(exc))
-        except KeyError as exc:
-            return WriteResult(False, "not_found", str(exc))
-        return WriteResult(True)
-
-
-# ---------------------------------------------------------------------------
-# 新形：属主服务（MFW 服务化，实施方案 §3.4）
-#
-# 项目服务按「前缀 + 操作名」现取属主的 8 个操作，进出都是只含 JSON 值的字典；这一段不导入项目更新。
-# 上面旧的 ``BuiltinConfigOwner``（项目更新拿对象直接调）在新旧并存期原样保留。
-# ---------------------------------------------------------------------------
-
-#: 属主服务名的前缀：``maafw.owner.<专项插件 id>.v1``。
-OWNER_SERVICE_PREFIX = "maafw.owner.{owner}.v1"
-
-#: 属主服务的 8 个操作 → 混进专项 ``Plugin`` 的方法名（:class:`OwnerServiceMixin`）。
-OWNER_OPERATIONS: dict[str, str] = {
-    "list": "owner_list",
-    "read": "owner_read",
-    "check_source_path": "owner_check_source_path",
-    "plan_rules": "owner_plan_rules",
-    "project_mismatch": "owner_project_mismatch",
-    "lock": "owner_lock",
-    "unlock": "owner_unlock",
-    "write": "owner_write",
-}
-
-#: 写回补丁里认的键（键不在 = 这一项不写）。
-RECORD_PATCH_KEYS = (
-    "source_path",
-    "report",
-    "source_version",
-    "imported_at",
-    "channel",
-)
-
-
-def owner_service_prefix(owner: str) -> str:
-    """属主 ``owner``（专项插件 id）的服务名前缀。"""
-
-    return OWNER_SERVICE_PREFIX.format(owner=owner)
-
-
-def owner_provides(owner: str) -> dict[str, str]:
-    """专项 ``Plugin.provides_services`` 里属主那 8 项：``{服务名: 方法名}``。"""
-
-    prefix = owner_service_prefix(owner)
-    return {f"{prefix}.{op}": method for op, method in OWNER_OPERATIONS.items()}
-
-
 def _json_text(value: Any) -> Any:
-    """路径之类转成字符串；``None`` 与已是 JSON 值的原样。"""
-
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
     if hasattr(value, "__fspath__"):
@@ -298,19 +110,13 @@ def _json_text(value: Any) -> Any:
 
 
 def _json_time(value: Any) -> str | None:
-    """时刻出 ISO 8601 字符串（``datetime.isoformat()``）；空值 ``None``；已是字符串的原样。"""
-
     if value is None or isinstance(value, str):
         return value
     isoformat = getattr(value, "isoformat", None)
-    if callable(isoformat):
-        return str(isoformat())
-    return str(value)
+    return str(isoformat()) if callable(isoformat) else str(value)
 
 
 def _json_report(value: Any) -> Any:
-    """导入报告原样（JSON 文本或字典都行）；字典里的值也只留 JSON 值。"""
-
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
     if isinstance(value, Mapping):
@@ -321,13 +127,6 @@ def _json_report(value: Any) -> Any:
 
 
 def record_payload(uid: str, config: Any, order: int = 0) -> dict[str, Any]:
-    """托管记录的字典形（项目服务各操作的 ``record``、属主 ``list`` / ``read`` 回的都是它）。
-
-    字段与项目更新的 ``ManagedRecord`` 一一对应、取配置原值，全部转成 JSON 值：路径出字符串，
-    ``imported_at`` 出 ``Embedded.ImportedAt.isoformat()``（空值 ``None``）。``proxy_address``、
-    ``mirror_cdk`` 是机密，调用方不得写进日志。``order`` 是宿主托管列表里的位置，只拿一份时填 0。
-    """
-
     return {
         "uid": str(uid),
         "kind": type(config).__name__.removesuffix("Config"),
@@ -349,8 +148,6 @@ def record_payload(uid: str, config: Any, order: int = 0) -> dict[str, Any]:
 
 
 def _patch_dict_data(patch: Mapping[str, Any]) -> dict[str, Any]:
-    """写回补丁字典 → 配置的分组字典；只放给了的键，形状同 :func:`_patch_data`。"""
-
     data: dict[str, Any] = {}
     if "source_path" in patch:
         data.setdefault("Info", {})["Path"] = patch["source_path"]
@@ -369,31 +166,49 @@ def _patch_dict_data(patch: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class OwnerKeyError(KeyError):
-    """属主说没有这个托管；``str()`` 原样给出那边的原话（同项目更新的 ``OwnerKeyError``）。"""
-
     def __str__(self) -> str:
         return str(self.args[0]) if self.args else ""
 
 
 def _write_result(ok: bool, reason: str = "", detail: str = "") -> dict[str, Any]:
-    """``write`` 的出参：``{ok, reason, detail}``；没写成时另带 ``code`` / ``message``（同 ``reason`` /
-    ``detail``），与服务结果的通用失败形状对得上。"""
-
     if ok:
         return {"ok": True, "reason": "", "detail": ""}
-    return {
-        "ok": False,
-        "reason": reason,
-        "detail": detail,
-        "code": reason,
-        "message": detail,
-    }
+    return {"ok": False, "reason": reason, "detail": detail, "code": reason, "message": detail}
+
+
+OWNER_SERVICE_PREFIX = "maafw.owner.{owner}.v1"
+OWNER_OPERATIONS: dict[str, str] = {
+    "list": "owner_list",
+    "read": "owner_read",
+    "check_source_path": "owner_check_source_path",
+    "plan_rules": "owner_plan_rules",
+    "project_mismatch": "owner_project_mismatch",
+    "lock": "owner_lock",
+    "unlock": "owner_unlock",
+    "write": "owner_write",
+}
+RECORD_PATCH_KEYS = (
+    "source_path",
+    "report",
+    "source_version",
+    "imported_at",
+    "channel",
+)
+
+
+def owner_service_prefix(owner: str) -> str:
+    return OWNER_SERVICE_PREFIX.format(owner=owner)
+
+
+def owner_provides(owner: str) -> dict[str, str]:
+    prefix = owner_service_prefix(owner)
+    return {f"{prefix}.{operation}": method for operation, method in OWNER_OPERATIONS.items()}
 
 
 class ConfigOwner:
     """宿主托管表里某一种确切类型的托管的属主（新形，回字典）。
 
-    与 :class:`BuiltinConfigOwner` 同一套判据：认领用 ``type(config) is <类型>``，类型每次现取；
+    与专项配置类的确切类型判据一致：认领用 ``type(config) is <类型>``，类型每次现取；
     读不加锁、不要求托管完整加载（``list`` 另报 ``ready``）。专项在模块级建一份，交给
     :class:`OwnerServiceMixin`，自己写回项目记录时经 :func:`write_or_raise` 本地调它。
     """
@@ -645,7 +460,6 @@ __all__ = [
     "OWNER_PROTOCOL",
     "OWNER_SERVICE_PREFIX",
     "RECORD_PATCH_KEYS",
-    "BuiltinConfigOwner",
     "ConfigOwner",
     "OwnerKeyError",
     "OwnerServiceMixin",
@@ -654,3 +468,4 @@ __all__ = [
     "record_payload",
     "write_or_raise",
 ]
+
