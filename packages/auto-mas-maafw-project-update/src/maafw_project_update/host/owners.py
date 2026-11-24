@@ -118,7 +118,7 @@ class ManagedRecord:
     running: bool
 
     def __post_init__(self) -> None:
-        # 时刻只在这一处还原：新形属主（服务）交来的是 ISO 字符串，旧形属主（``BuiltinConfigOwner``）
+        # 时刻只在这一处还原：服务交来的是 ISO 字符串，
         # 交来的是配置里的 datetime 原值，两边都经这里归一成 datetime（``embedded_status_data`` 要调
         # ``.isoformat()``）。解析不了的原样留着。
         object.__setattr__(self, "imported_at", restore_imported_at(self.imported_at))
@@ -744,3 +744,4 @@ __all__ = [
     "write_or_raise",
     "write_record",
 ]
+

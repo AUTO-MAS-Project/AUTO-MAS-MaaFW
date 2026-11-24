@@ -309,17 +309,13 @@ class ProjectServices:
         return {"ok": True}
 
     def _forget_owner(self, name: str) -> None:
-        """撤掉属主登记（新旧两种登记一起撤）。"""
+        """撤掉属主服务登记。"""
 
         from . import owners
 
         owners.unregister_owner(name)
         for key in [key for key in self._owner_prefixes if key[0] == name]:
             del self._owner_prefixes[key]
-        resolvers = getattr(self, "_resolvers", None)
-        if isinstance(resolvers, dict):
-            for key in [key for key in resolvers if key[0] == name]:
-                del resolvers[key]
 
     # ------------------------------------------------------------------
     # 短操作

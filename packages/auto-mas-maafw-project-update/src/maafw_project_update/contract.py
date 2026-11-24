@@ -231,7 +231,7 @@ for (_prefix, _family), _model in HANDLE_FAMILIES.items():
     REQUEST_MODELS[f"{_prefix}.{_family}_close"] = CloseRequest
 del _prefix, _family, _model
 
-#: 本插件提供的全部服务名（不含旧的分发式服务 ``maafw.project.v1`` / ``maafw.project_update.v1``）。
+#: 本插件提供的全部按操作拆分服务名。
 SERVICE_NAMES: tuple[str, ...] = tuple(REQUEST_MODELS)
 
 
@@ -342,3 +342,4 @@ __all__ = [
     "record_dict",
     "unknown_keys",
 ]
+

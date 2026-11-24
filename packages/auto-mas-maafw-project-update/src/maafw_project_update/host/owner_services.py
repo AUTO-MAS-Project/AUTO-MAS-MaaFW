@@ -5,7 +5,7 @@
 """新形属主（``maafw.owner.<专项>.v1.*``，每个方法一个服务名）在项目更新这一侧的适配器。
 
 专项经 ``maafw.project.v1.owner_register(name, prefix)`` 登记的是「属主名 → 服务名前缀」；这里把前缀
-包成与旧形属主入口（``BuiltinConfigOwner``）同一套方法的对象，``owners.py`` 以下的代码不用改：
+包装成项目服务使用的属主入口，``owners.py`` 以下的代码不用改：
 
 - ``list_managed`` / ``read_managed`` / ``check_source_path``、``plan_rules``、``project_mismatch`` 是同步服务
   （项目更新在事件循环与工作线程上同步问属主），``lock_managed`` / ``unlock_managed`` / ``write_record`` 是
@@ -94,7 +94,7 @@ class _ProjectMismatch:
 
 
 class ServiceOwnerEntry:
-    """一个新形属主（服务名前缀 ``prefix``）的入口；方法与 ``BuiltinConfigOwner`` 同名同义。"""
+    """一个属主服务名前缀 ``prefix`` 的入口。"""
 
     owner_protocol = owners.OWNER_PROTOCOL
 
@@ -236,3 +236,4 @@ class ServiceOwnerEntry:
 
 
 __all__ = ["OwnerUnavailable", "ServiceOwnerEntry"]
+
