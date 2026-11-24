@@ -908,6 +908,7 @@ class ProjectServices:
                     owner=parsed.owner,
                     script_name=parsed.script_name,
                     params={"prefetch_paths": dict(parsed.prefetch_paths)},
+                    round_started_at=_seconds(parsed.round_started_at),
                 ),
                 parsed.phase,
             )

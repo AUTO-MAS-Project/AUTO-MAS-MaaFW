@@ -159,6 +159,7 @@ class UpdateStartRequest(_Request):
     #: 任务参数里队列预下载交来的路径映射（值是路径字符串）。
     prefetch_paths: dict[str, Any] = Field(default_factory=dict)
     prefetch_token: str | None = None
+    round_started_at: datetime | None = None
     stop_requested: bool = False
 
 

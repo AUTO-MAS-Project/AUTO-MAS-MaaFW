@@ -1674,6 +1674,7 @@ def update_request(
     phase: str,
     prefetch_paths: Any = None,
     prefetch_token: str | None = None,
+    round_started_at: float | datetime | str | None = None,
 ) -> dict[str, Any]:
     """开始前已停时由 :class:`Operation` 补 ``stop_requested``。"""
 
@@ -1685,7 +1686,11 @@ def update_request(
         "phase": phase,
     }
     request.update(
-        _optional(prefetch_paths=prefetch_paths, prefetch_token=prefetch_token)
+        _optional(
+            prefetch_paths=prefetch_paths,
+            prefetch_token=prefetch_token,
+            round_started_at=_instant(round_started_at),
+        )
     )
     return request
 
