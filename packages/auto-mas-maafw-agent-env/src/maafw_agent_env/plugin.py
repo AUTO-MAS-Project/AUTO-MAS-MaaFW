@@ -1,10 +1,10 @@
-"""MFW Agent 环境插件实例：登记服务 ``maafw.agent_env.v1.<操作>``（22 个）与旧的 ``maafw.agent_env.v1``。
+"""MFW Agent 环境插件实例：登记服务 ``maafw.agent_env.v1.<操作>``（22 个）。
 
 每个操作一个服务名，映射到插件上同名的 async 方法（实现在 ``host/services.py``，契约在
-``contract.py``）。旧的分发式服务 ``maafw.agent_env.v1``（``call(op, …)``，只认 ``version``）
-在新旧并存期保留。运行（``maafw_runner``）和项目更新（``maafw_project_update``）现在仍在函数体内
-直接导入 ``maafw_agent_env.core.*`` 与 ``maafw_agent_env.host.*``，那些函数原样保留，各自的服务化
-单子再逐条改成走服务。
+``contract.py``）。0.2 的分发式服务 ``maafw.agent_env.v1``（``call(op, …)``）已删（MFW 服务化实施方案
+§2.1），版本走 ``maafw.agent_env.v1.version``。运行（``maafw_runner``）和项目更新
+（``maafw_project_update``）的宿主侧只经这些服务调本包；只有运行的 worker 子进程经门面
+``maafw_agent_env.core.worker_api`` 导入。
 
 规则 L：本模块和它顶层的整条导入链里不出现别的插件包，只依赖 SDK。
 
@@ -20,18 +20,16 @@ from typing import TYPE_CHECKING, Any
 DISTRIBUTION = "auto-mas-maafw-agent-env"
 VERSION = "0.2.0"
 
-#: 本插件提供的服务族；旧的分发式服务也叫这个名字，新操作是 ``<族>.<操作>``。
+#: 本插件提供的服务族；每个操作的服务名是 ``<族>.<操作>``，族名本身不登记。
 SERVICE = "maafw.agent_env.v1"
 
 
 def service_names() -> dict[str, str]:
-    """``provides_services``：旧分发服务 + 22 个操作（服务名 → 插件上的方法名）。"""
+    """``provides_services``：22 个操作（服务名 → 插件上的方法名）。"""
 
     from .contract import OPERATIONS
 
-    names = {SERVICE: "call"}
-    names.update({f"{SERVICE}.{op}": op for op in OPERATIONS})
-    return names
+    return {f"{SERVICE}.{op}": op for op in OPERATIONS}
 
 
 if TYPE_CHECKING:
@@ -39,8 +37,7 @@ if TYPE_CHECKING:
 
     from .host.services import AgentEnvServices
 
-    class Plugin(AgentEnvServices, ExtensionPlugin):
-        async def call(self, op: str, /, **kwargs: Any) -> Any: ...
+    class Plugin(AgentEnvServices, ExtensionPlugin): ...
 
 
 __all__ = ["DISTRIBUTION", "SERVICE", "VERSION", "Plugin", "service_names"]
@@ -74,17 +71,6 @@ def _build_plugin_class() -> type:
             """退出：在途作业置停止，最多等 2 秒，没被取走的租约还掉，清空句柄表。"""
 
             await self.shutdown_services(teardown=True)
-
-        async def call(self, op: str, /, **kwargs: Any) -> Any:
-            """服务分发入口：按 ``op`` 选择操作。
-
-            0.1.0 只认 ``version``，返回 ``{"package": 发行名, "version": 版本}``；
-            不认识的操作抛 ``ValueError``。
-            """
-
-            if op == "version":
-                return {"package": DISTRIBUTION, "version": VERSION}
-            raise ValueError(f"未知操作: {op}")
 
     Plugin.__module__ = __name__
     Plugin.__qualname__ = "Plugin"

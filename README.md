@@ -10,9 +10,9 @@ AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 
 | --- | --- | --- | --- | --- |
 | `packages/auto-mas-maafw-interface` | `auto-mas-maafw-interface` | `maafw_interface` | 库 | 解析 `interface.json`、建运行计划、Win32 控制器匹配、日志打码 |
 | `packages/auto-mas-maafw-native` | `auto-mas-maafw-native` | `maafw_native` | 库 | 识别项目自带的 MaaFramework 原生库版本与架构、`data/mfw` 目录布局 |
-| `packages/auto-mas-maafw-agent-env` | `auto-mas-maafw-agent-env` | `maafw_agent_env` | 插件（服务 `maafw.agent_env.v1`） | 运行池与项目 agent 的 Python 环境 |
-| `packages/auto-mas-maafw-runner` | `auto-mas-maafw-runner` | `maafw_runner` | 插件（服务 `maafw.runner.v1`） | 跑运行计划：worker 子进程、超时与打转保护、失败截图、运行前设置、设备与桌面游戏 |
-| `packages/auto-mas-maafw-project-update` | `auto-mas-maafw-project-update` | `maafw_project_update` | 插件（服务 `maafw.project.v1`、`maafw.project_update.v1`） | 项目副本、视图、导入与更新、维护清理、`/api/scripts/maafw/*` 端点、托管属主登记 |
+| `packages/auto-mas-maafw-agent-env` | `auto-mas-maafw-agent-env` | `maafw_agent_env` | 插件（服务 `maafw.agent_env.v1.*`） | 运行池与项目 agent 的 Python 环境 |
+| `packages/auto-mas-maafw-runner` | `auto-mas-maafw-runner` | `maafw_runner` | 插件（服务 `maafw.runner.v1.*`） | 跑运行计划：worker 子进程、超时与打转保护、失败截图、运行前设置、设备与桌面游戏 |
+| `packages/auto-mas-maafw-project-update` | `auto-mas-maafw-project-update` | `maafw_project_update` | 插件（服务 `maafw.project.v1.*`、`maafw.project_update.v1.*`） | 项目副本、视图、导入与更新、维护清理、`/api/scripts/maafw/*` 端点、托管属主登记 |
 | `packages/auto-mas-maafw-adapter-kit` | `auto-mas-maafw-adapter-kit` | `maafw_adapter_kit` | 库（不进插件市场） | 三个专项共用、不属于任何积木的代码：托管属主入口、任务选项密码加解密、账号保存前准备、默认任务队列、配置恢复池 |
 
 每个包有自己的 `pyproject.toml`、`README.md`、`CHANGELOG.md`，版本号只写在各自的 `pyproject.toml` 里，各自发版。
@@ -25,7 +25,7 @@ maafw_interface   maafw_native          （库，互不依赖，只依赖 pydant
         └──────┬────────┘
        maafw_agent_env                   （插件，requires 无）
           ▲         ▲
-   maafw_runner   maafw_project_update   （插件，都 requires maafw.agent_env.v1）
+   maafw_runner   maafw_project_update   （插件，都 requires maafw.agent_env.v1.* 里的操作）
           ▲         ▲      ▲
           │         │  maafw_adapter_kit （库，顶层只导入 maafw_interface；SDK 与项目更新在函数体内取）
           │         │      ▲

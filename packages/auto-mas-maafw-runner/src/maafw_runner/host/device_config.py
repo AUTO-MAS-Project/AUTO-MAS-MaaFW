@@ -128,16 +128,6 @@ class MaaFWTaskStartGate:
 # ---------------------------------------------------------------------------
 
 
-def game_launched_with_emulator(device_info: Any) -> bool:
-    """模拟器这次是不是把游戏冷启动了（进程原本不在，``launched``）。
-
-    只有冷启动才等：进程本来就在（在前台 already-running、从后台切回 resumed）、没给包名、
-    拉起失败都不等；旧式模拟器管理器不回报拉应用结果，同样不等。
-    """
-
-    return getattr(device_info, "app_launch", "") == "launched"
-
-
 def task_start_gate(
     *,
     started_at: float | None,

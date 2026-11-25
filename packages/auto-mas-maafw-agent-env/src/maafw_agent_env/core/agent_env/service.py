@@ -15,7 +15,7 @@ from .planner import build_maafw_agent_command_plans
 
 
 class MaaFWAgentEnvService:
-    """maafw.agent_env.v1 service."""
+    """agent 环境的函数门面：归类 agent、生成命令计划、准备环境（不是插件服务）。"""
 
     def classify(self, agent: MaaFWAgent | dict[str, Any]) -> str:
         plans = self.build_command_plans(".", agent)

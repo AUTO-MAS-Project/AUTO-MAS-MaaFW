@@ -9,7 +9,7 @@
 三个专项的账号流程都调它。
 
 从运行积木 ``maafw_runner.host.host_client`` 整份搬来；事件出口从运行积木的事件类改成字典，
-``game_launched_with_emulator`` 抄一份（运行积木 ``device_config`` 里那份照旧给它自己用）。
+``game_launched_with_emulator`` 抄一份（运行积木 ``device_config`` 里那份已没有使用者，删掉了）。
 """
 
 from __future__ import annotations
