@@ -605,8 +605,9 @@ def build_samples(root: Path) -> tuple[list[Sample], list[str], set[str]]:
                 project_path=Path("C:/p"),
                 plan=_Plan([]),
                 device_config={"type": "Adb"},
-                runtime_pool_root=None,
-                runtime_pool_id="",
+                # 运行池两项在契约里必填非空（没有它们借不到运行环境），最少的请求也得带
+                runtime_pool_root=Path("C:/pool"),
+                runtime_pool_id="pool",
                 lease_owner="automas-maafw-runner",
                 run_time_limit_minutes=0,
                 attachment_root=Path("C:/att"),

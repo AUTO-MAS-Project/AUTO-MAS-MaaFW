@@ -59,6 +59,10 @@ _ADB_SCREENCAP_EMULATOR_EXTRAS = 1 << 6
 _ADB_INPUT_DEFAULT = -9
 _ADB_INPUT_ALL = -1
 _ADB_INPUT_EMULATOR_EXTRAS = 1 << 3
+# 脚本配置 ``Device.AdbScreencapMethods`` / ``Device.AdbInputMethods`` 的缺省值（三个专项的配置类与
+# 内置时代的 ``ScriptConfig`` 相同）：调用方没给原值（null）时按没配置算。
+_CONFIGURED_SCREENCAP_DEFAULT = -57
+_CONFIGURED_INPUT_DEFAULT = -1
 # 雷电专用：MinitouchAndAdbKey(2) | AdbShell(1)，故意不带 Maatouch(4)。
 #
 # MaaFW 的 ADB 文本输入只有两条实现：Maatouch 走 MaaTouch 的 `t` 命令，
@@ -494,6 +498,8 @@ def adb_screencap_methods(profile: MaaFWAdbControlProfile, configured: Any) -> i
             # 每个任务空转到超时。测速只比快慢、不比对不对，必然选错。
             return extra_method
         return _remove_method(default_methods, extra_method, default_methods)
+    if configured is None:
+        configured = _CONFIGURED_SCREENCAP_DEFAULT
     return _remove_method(
         int(configured),
         extra_method,
@@ -514,7 +520,9 @@ def adb_input_methods(profile: MaaFWAdbControlProfile, configured: Any) -> int:
         # ModAVD：AVDExtras 没有输入，默认会选中 Maatouch（官方镜像上 minitouch 不可用）
         return _ADB_INPUT_DEFAULT
 
-    configured_methods = int(configured)
+    configured_methods = int(
+        _CONFIGURED_INPUT_DEFAULT if configured is None else configured
+    )
     if not profile.input_extra:
         return _remove_method(
             configured_methods,

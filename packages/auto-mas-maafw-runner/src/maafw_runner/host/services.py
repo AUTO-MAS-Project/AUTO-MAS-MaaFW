@@ -928,12 +928,11 @@ class RunnerServices:
             if parsed.avd is not None
             else None
         )
-        root = parsed.runtime_pool_root
         run_request = MaaFWPlanRunRequest(
             project_path=Path(parsed.project_path),
             plan=plan,
             device_config=device_config,
-            runtime_pool_root=Path(root) if root else None,
+            runtime_pool_root=Path(parsed.runtime_pool_root),
             runtime_pool_id=parsed.runtime_pool_id,
             lease_owner=parsed.lease_owner,
             run_time_limit_minutes=parsed.run_time_limit_minutes,

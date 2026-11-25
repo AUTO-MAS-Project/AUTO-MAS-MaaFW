@@ -377,7 +377,8 @@ class MaaFWPlanRun:
         runtime_pool_id = str(request.runtime_pool_id or "").strip()
         if runtime_pool_root is None or not runtime_pool_id:
             raise RuntimeError(
-                "MaaFW 运行任务缺少由 maafw.runtime_pool.v1 注入的 root/poolId"
+                "MaaFW 运行任务缺少运行环境池的 root/poolId"
+                "（由调用方经 maafw.agent_env.v1.runtime_route 取得）"
             )
         native_debug_log_path = project_path / "debug" / "maafw.log"
         (

@@ -18,9 +18,9 @@ from __future__ import annotations
 import types
 import typing
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 CODE_INVALID_REQUEST = "invalid_request"
 #: ``invalid_request`` 的文案前缀；后面接出错字段的路径。
@@ -139,6 +139,9 @@ class DeviceAdbConfigRequest(_Request):
     #: 调用方缓存；null 时才建。
     profile: AdbProfile | None = None
     emulator_process: EmulatorProcess = Field(default_factory=EmulatorProcess)
+    #: ``Device.AdbScreencapMethods`` / ``Device.AdbInputMethods`` 的原值（只在非 MuMu / 雷电 / ModAVD
+    #: 时用）。缺省或 null 按这两个配置项的缺省值 -57 / -1 算，与内置时代没配置时相同；原值转不成
+    #: 整数时回 ``device_config_failed``。
     configured_screencap_methods: Any = None
     configured_input_methods: Any = None
 
@@ -186,8 +189,12 @@ class PlanStartRequest(_Request):
     #: 每项 ``MaaFWAgent.model_dump(mode="json", by_alias=True)``，提供方还原后交给借环境。
     declared_agents: list[dict[str, Any]] = Field(default_factory=list)
     device_config: dict[str, Any]
-    runtime_pool_root: str | None = None
-    runtime_pool_id: str = ""
+    #: 运行环境池的根目录与池 id（调用方先经 ``maafw.agent_env.v1.runtime_route`` 取得）。没有它们
+    #: 借不到运行环境，所以必填且不许为空：缺了、为 null 或空串都回点名字段的 ``invalid_request``。
+    runtime_pool_root: Annotated[str, StringConstraints(min_length=1)]
+    runtime_pool_id: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
     lease_owner: str
     run_time_limit_minutes: int
     attachment_root: str
