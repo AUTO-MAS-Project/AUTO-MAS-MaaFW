@@ -6,6 +6,7 @@
 - 从运行积木搬来 `runner.run_events`、`runner.resource_failure`、`runner.game_package`、`run_redaction`（整份，日志改走标准 logging）与 `runner.models` 的三个信号常量；`controller_win32.service` 加 `find_controller` 与无窗口规则文案，`interface.loader` 加 `has_interface_file`，`MaaFWPlanRules` 加 `to_dict` / `from_dict`。
 - 新模块 `service_calls`：跨插件服务调用的通用部分（调用方起止轮询、四种取消收尾、忙重试与保险丝、同步调用与线程桥、提供方句柄表），只用标准库。
 - 建计划时传给项目的 `PI_CLIENT_MAAFW_VERSION` 不再多一个 `v`：maafw 发行包元数据的版本号自带 `v`（如 5.16.1 的 `v5.16.1`）时原样用，不带的照旧补上。
+- `interface.loader` 的内存缓存键、磁盘缓存文件名（`sha256` 文件名）与解析用的项目根先去掉 `Path.resolve()` 偶尔交回的 `\\?\` 前缀（`\\?\UNC\` 换回 `\\`）：Windows 上别的线程正建或替换目录时 CPython 3.12 会交回带前缀的路径，同一个项目会落到两份缓存。新模块 `path_key`（与 agent 环境、项目更新积木里的同名模块同一份写法，本库不依赖它们）。没有前缀时文件名不变，已落盘的缓存不换名。
 
 ## 0.2.0
 

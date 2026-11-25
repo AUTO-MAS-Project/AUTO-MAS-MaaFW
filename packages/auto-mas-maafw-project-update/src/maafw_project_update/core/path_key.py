@@ -5,7 +5,7 @@ Windows 上别的线程正在创建或替换路径上的某级目录时，CPytho
 normcase / casefold / 哈希当键，同一个目录就会算出两个键：预约、进程内锁、缓存文件名都会偏。
 「resolve 之后当键」的地方一律经 :func:`resolved_path_str` 取字符串。
 
-agent 环境积木里有同样的一份（``maafw_agent_env.core.path_key``），两边不互相导入。
+agent 环境积木（``maafw_agent_env.core.path_key``）与解析库（``maafw_interface.path_key``）里有同样的两份，三边不互相导入。
 """
 
 from __future__ import annotations

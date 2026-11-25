@@ -25,6 +25,7 @@ from maafw_native.requirements_file import (
     RequirementsFileError,
     read_requirements_file,
 )
+from ..path_key import strip_extended_prefix
 from ..runtime_pool import runtime_managed_uv_executable
 from ..runtime_pool._shared import (
     mask_url_credentials,
@@ -290,7 +291,8 @@ def build_agent_env_manifest(
         extra["isolatedProject"] = inputs["isolatedProject"]
     return {
         "schemaVersion": 2,
-        "projectPath": str(resolved_project_path),
+        # resolve 偶尔交回 \\?\ 前缀：去掉再记，没有前缀时与原写法相同（比较见 _isolated_venv_mismatch）
+        "projectPath": strip_extended_prefix(str(resolved_project_path)),
         "interfaceHash": _project_interface_hash(resolved_project_path),
         "requirementsHash": _requirements_hash(requirements),
         "requirements": requirements,
@@ -1077,7 +1079,11 @@ def _isolated_venv_mismatch(
         # 视图路径换版本也不变，requirements 文本不变时本地包内容可能已经变了，只比键
         # 会跳过安装、跑上一版的包。键相同已说明是本视图的，旧 manifest（0a48f960b 写的、
         # 没有 isolatedProject 字段）靠 expected 那一侧认出来，照样按老规则判。
-    if manifest.get("projectPath") != expected["projectPath"]:
+    # 旧清单里的 projectPath 可能是 resolve 带 \\?\ 前缀时写下的，按去前缀后的值比
+    recorded_path = manifest.get("projectPath")
+    if isinstance(recorded_path, str):
+        recorded_path = strip_extended_prefix(recorded_path)
+    if recorded_path != expected["projectPath"]:
         return "[Python环境] 隔离 venv 项目路径已变化，将重建"
     if manifest.get("interfaceHash") != expected["interfaceHash"]:
         return "[Python环境] MaaFW 项目 interface 已变化，将重建隔离 venv"

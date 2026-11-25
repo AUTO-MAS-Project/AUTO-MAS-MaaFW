@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from maafw_project_update.core.path_key import resolved_path_str
+from maafw_project_update.core.path_key import resolved_path_str, strip_extended_prefix
 
 try:  # Windows uses byte-range locks; POSIX uses the equivalent lockf API.
     import msvcrt  # type: ignore[import-not-found]
@@ -138,9 +138,9 @@ class DurableFileLock:
     def acquire(self) -> "DurableFileLock":
         self.path = self.path.expanduser().resolve(strict=False)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._local_key = (
-            str(self.path).casefold() if os.name == "nt" else str(self.path)
-        )
+        # 进程内锁表的键：resolve 偶尔交回 \\?\ 前缀，先去掉再归一（没有前缀时与原写法相同）
+        local_key = strip_extended_prefix(str(self.path))
+        self._local_key = local_key.casefold() if os.name == "nt" else local_key
         if self.acquired:
             with _LOCAL_LOCK_GUARD:
                 local = _LOCAL_LOCKS.get(self._local_key)

@@ -29,6 +29,7 @@ from typing import Any
 
 import json5
 
+from ..path_key import resolved_path_str, strip_extended_prefix
 from .models import (
     MAAFW_INPUT_TYPES,
     MAX_TASK_REPEAT_COUNT,
@@ -1419,7 +1420,7 @@ def _load_interface_model_with_context(
 def _load_interface_model_uncollected(
     base_dir: str | Path,
 ) -> tuple[MaaFWInterface, _LoadContext]:
-    resolved_base_dir = Path(base_dir).resolve()
+    resolved_base_dir = Path(resolved_path_str(base_dir))
     if not resolved_base_dir.exists() or not resolved_base_dir.is_dir():
         raise MaaFWInterfaceLoadError("请设置 MaaFW 项目目录")
 
@@ -1473,7 +1474,8 @@ def load_interface_model_cached(
     force_reload: bool = False,
 ) -> MaaFWInterface:
     """Load MaaFW ProjectInterface with memory and disk cache."""
-    resolved_base_dir = Path(base_dir).resolve()
+    # 内存缓存键与磁盘缓存文件名都由它来：resolve 偶尔交回 \\?\ 前缀，先去掉
+    resolved_base_dir = Path(resolved_path_str(base_dir))
     with _cache_lock:
         cache_path = _disk_cache_path(resolved_base_dir)
         _cleanup_expired_disk_cache(cache_path)
@@ -1533,7 +1535,9 @@ def _disk_cache_dir() -> Path:
 
 
 def _disk_cache_path(root_path: Path) -> Path:
-    cache_key = hashlib.sha256(str(root_path).casefold().encode("utf-8")).hexdigest()
+    # 没有前缀时与原写法逐字相同，已落盘的缓存文件不换名
+    normalized = strip_extended_prefix(str(root_path)).casefold()
+    cache_key = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return _disk_cache_dir() / f"{cache_key}.json"
 
 
