@@ -3,8 +3,8 @@
 运行这一侧对外的「设备配置」调用：通用 MFW 与各专项的流程各自调这里的函数，不经任务类。
 参数一律是普通数据（模拟器 uid、地址、ADB 路径、配置里的原值、interface 的控制器模型）；
 要模拟器能力时，按 uid 调宿主现有的设备入口（``app.task.game.BoundEmulator``，参数名
-``emulator``）。缓存归调用方：ADB 地址、路径与控制档案放在 :class:`MaaFWAdbDeviceState` 里，
-由调用方持有、决定何时清。
+``emulator``）。缓存归调用方：ADB 地址、路径与控制档案的缓存（``MaaFWAdbDeviceState``）和
+认游戏包名（``choose_game_package``）只在专项进程里用，在专项共用库 ``maafw_adapter_kit.device_state``。
 
 不在这里做：开关模拟器、桌面游戏启停、登录与游戏更新钩子、起 worker。ModAVD 的 MaaFramework
 版本门槛在起 worker 之前（要等借到运行环境才知道版本），也不在这里。
@@ -34,8 +34,7 @@ from maafw_interface.interface.models import (
 from maafw_interface.interface.preview import (
     build_adb_emulator_extra_capabilities,
 )
-from maafw_interface.runner.game_package import resolve_game_package
-from maafw_interface.runner.models import MaaFWDeviceConfig, MaaFWRunPlan
+from maafw_interface.runner.models import MaaFWDeviceConfig
 
 from ._sdk import get_logger
 
@@ -116,29 +115,6 @@ class MaaFWAdbControlProfile:
     config: dict[str, Any]
 
 
-@dataclass
-class MaaFWAdbDeviceState:
-    """调用方持有的 ADB 设备缓存：同一次模拟器启动内不重复解析。
-
-    ``address`` / ``device_info`` 随这次启动拿到；``profile`` 里雷电的 extras 带着这次启动的
-    dnplayer pid，关掉模拟器后都要清（:meth:`forget_emulator_launch`）。``adb_path`` 与哪次
-    启动无关，关模拟器不清。
-    """
-
-    address: str | None = None
-    device_info: DeviceInfo | None = None
-    adb_path: str | None = None
-    profile: MaaFWAdbControlProfile | None = None
-
-    def forget_emulator_launch(self) -> None:
-        # 地址是随这次启动缓存的，关掉后下一轮要重新开、重新拿。
-        self.address = None
-        self.device_info = None
-        # 雷电截图增强的 extras 里带着这次启动的 dnplayer pid；重开后还用旧 pid，
-        # MaaFW 建不出截图实例（Failed to create ld inst），这一轮当场 connect 失败。
-        self.profile = None
-
-
 @dataclass(frozen=True)
 class MaaFWTaskStartGate:
     """首任务下发闸门：最早下发的墙钟时刻（None 表示不等）与 worker 的放行判据。"""
@@ -216,56 +192,8 @@ def _task_start_not_before(
 
 
 # ---------------------------------------------------------------------------
-# ADB：游戏包名、adb 路径、控制档案、截图与输入方式
+# ADB：adb 路径、控制档案、截图与输入方式
 # ---------------------------------------------------------------------------
-
-
-async def choose_game_package(
-    manual_package: Any, plan: MaaFWRunPlan | None, *, log: Log
-) -> str:
-    """这次要不要顺带把游戏拉起来，拉哪个包。返回空串表示只开模拟器。
-
-    ``manual_package`` 是脚本配置 ``Game.PackageName`` 的原值。填了就以它为准：从项目里认
-    包名是启发式的（``StartApp`` 只是约定，不是 interface 规格里的字段），用户必须有办法
-    推翻它。
-
-    认不出来不是错误——很多项目本来就自己在 pipeline 里开游戏。但要让用户看得见
-    为什么没启动，否则「填了没反应」和「没填也没反应」在界面上长得一模一样。
-    """
-    manual = str(manual_package or "").strip()
-    if manual:
-        log(f"游戏包名: {manual}（脚本配置）")
-        return manual
-
-    if plan is None:
-        return ""
-
-    resolution = await asyncio.to_thread(
-        resolve_game_package,
-        [
-            Path(item.resolved)
-            for item in plan.resource.paths
-            if item.exists and item.isDir
-        ],
-        [task.pipelineOverride for task in plan.tasks if task.pipelineOverride],
-    )
-
-    if resolution.reason == "resolved":
-        log(f"游戏包名: {resolution.package}（从项目识别）")
-        return resolution.package
-
-    if resolution.reason == "ambiguous":
-        log(
-            f"项目里识别到多个游戏包名（{'、'.join(resolution.candidates)}），"
-            "无法确定用哪个，本次不随模拟器启动游戏；"
-            "需要的话在托管管理页填写游戏包名"
-        )
-    else:
-        log(
-            "未能从项目里识别出游戏包名，本次不随模拟器启动游戏；"
-            "需要的话在托管管理页填写游戏包名"
-        )
-    return ""
 
 
 async def resolve_adb_path(

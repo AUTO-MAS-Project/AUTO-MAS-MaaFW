@@ -8,6 +8,7 @@
 - 借还运行环境改调 agent 环境的服务（`borrow_*`、`borrow_return`，`requires` 写这 5 个），宿主侧不再导入 `maafw_agent_env`；起 worker 前核对借环境结果回报的门面版本，不配套就不起 worker。`core/runner/environment.py` 只留 worker 用的那一个函数，借还与拼环境挪到 `host/environment.py`，`core/runner/service.py` 只剩 `build_plan`；worker 对 agent 环境只经 `maafw_agent_env.core.worker_api` 导入。打码、原生报错摘录、游戏包名识别、`find_controller` 与无窗口规则文案改从解析库取（原名字照旧可从原模块导入）。
 - `pretask_exit_watch_start` 多一个可选的 `after_scope`：为真时快照仍当场拍，作业先等调用方此刻的进程作用域收尾（`finished`）再等运行前设置的进程确认退出，与原 `release_run_reservation` 停止分支的先后一致；不传时照旧当场开始等。
 - `pretask_exit_watch` 的作业任务登记成调用方进程作用域的保留任务：宿主停止收尾时会取消作用域上下文里没登记的任务（然后才置 `finished`），之前确认作业会被一起取消、结果是「已停止」，停止后项目预约一直放不掉。
+- 删除已搬进专项共用库的那组宿主模块：`host` 下的 `attempt_ledger`、`run_record`、`run_report`、`run_messages`、`run_notices`、`run_verdict`、`signal_notice`、`proxy_quota`、`run_settings`、`telemetry_project`、`host_client`，以及 `device_config` 里的 `MaaFWAdbDeviceState`、`choose_game_package`。三个专项早已改从 `maafw_adapter_kit` 取，运行积木里没有别的使用者；`device_config.optional_int` 本积木自己还在用，留着。
 
 ## [0.2.0] - 2026-11-22
 
