@@ -2,12 +2,12 @@
 #   Copyright © 2025-2026 AUTO-MAS Team
 #   SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""内置专项的托管属主入口：按**确切类型**认领自己名下的托管（专项一侧）。
+"""专项的托管属主入口：按**确切类型**认领自己名下的托管（专项一侧）。
 
-项目更新一侧（``tools/embedded/owners.py``）只经这里交出的普通数据知道托管还在不在、读写项目记录；
-它不拿配置类，也不拿配置对象。三个内置专项各登记一个（通用 MFW 在 ``app/task/MaaFW/registration.py``，
-M9A、MSS 在各自的 ``registration.py``）：认领用 ``type(config) is <类型>``，类型每次现取，不靠继承——
-以后 M9A、MSS 的配置类不再继承 ``MaaFWConfig``，这里不用改。
+项目更新插件经属主服务（``maafw.owner.<专项>.v1.<操作>``）拿只含 JSON 值的字典，知道托管还在不在、
+读写项目记录；它不拿配置类，也不拿配置对象。三个专项各在模块级建一份 :class:`ConfigOwner`，经
+:class:`OwnerServiceMixin` 提供这 8 个服务，再到项目服务登记前缀：认领用 ``type(config) is <类型>``，
+类型每次现取，不靠继承——以后 M9A、MSS 的配置类不再继承 ``MaaFWConfig``，这里不用改。
 """
 
 from __future__ import annotations
@@ -23,14 +23,6 @@ from maafw_interface.interface.plan_rules import EMPTY_PLAN_RULES, MaaFWPlanRule
 
 if TYPE_CHECKING:
     from maafw_interface.interface.models import MaaFWInterface
-    from maafw_project_update.host.owners import (
-        ManagedRecord,
-        OwnerListing,
-        PathCheck,
-        ReadResult,
-        RecordPatch,
-        WriteResult,
-    )
 
 # 属主协议版本：项目更新（``maafw_project_update.host.owners.OWNER_PROTOCOL``）登记时比对，
 # 对不上就当属主没登记。原先直接取项目更新的常量；这里是属主一侧实现的版本，写成字面值，
@@ -38,39 +30,10 @@ if TYPE_CHECKING:
 OWNER_PROTOCOL = 1
 
 
-def _owners() -> Any:
-    """项目更新一侧的属主协议数据类（``ManagedRecord``、``ReadResult`` 等），用到时才取。"""
-
-    from maafw_project_update.host import owners
-
-    return owners
-
-
 def _host_config() -> Any:
     from auto_mas_core.host.core import Config
 
     return Config
-
-
-def _record(uid: str, config: Any, order: int) -> ManagedRecord:
-    return _owners().ManagedRecord(
-        uid=uid,
-        kind=type(config).__name__.removesuffix("Config"),
-        order=order,
-        name=config.Info.Name,
-        source_path=config.Info.Path,
-        report=config.Embedded.Report,
-        source_version=config.Embedded.SourceVersion,
-        imported_at=config.Embedded.ImportedAt,
-        follow_source=_follow_source(config),
-        channel=config.Update.Channel,
-        update_source=config.Update.Source,
-        auto_update_mode=config.Update.AutoUpdateMode,
-        package_mode=config.Update.PackageMode,
-        proxy_address=config.Update.ProxyAddress,
-        mirror_cdk=config.Update.MirrorChyanCDK,
-        running=bool(getattr(config, "is_locked", False)),
-    )
 
 
 def _follow_source(config: Any) -> bool:
@@ -80,28 +43,53 @@ def _follow_source(config: Any) -> bool:
         return False
 
 
-def _patch_data(patch: RecordPatch) -> dict[str, Any]:
-    """写回补丁 → 配置的分组字典；只放给了值的项，形状与原先各处直接写回时一致。"""
+# ---------------------------------------------------------------------------
+# 新形：属主服务（MFW 服务化，实施方案 §3.4）
+#
+# 项目服务按「前缀 + 操作名」现取属主的 8 个操作，进出都是只含 JSON 值的字典；本模块不导入项目更新。
+# ---------------------------------------------------------------------------
 
-    UNSET = _owners().UNSET
-    data: dict[str, Any] = {}
-    if patch.source_path is not UNSET:
-        data.setdefault("Info", {})["Path"] = patch.source_path
-    embedded: dict[str, Any] = {}
-    if patch.report is not UNSET:
-        embedded["Report"] = json.dumps(patch.report, ensure_ascii=False)
-    if patch.source_version is not UNSET:
-        embedded["SourceVersion"] = patch.source_version
-    if patch.imported_at is not UNSET:
-        embedded["ImportedAt"] = patch.imported_at
-    if embedded:
-        data["Embedded"] = embedded
-    if patch.channel is not UNSET:
-        data.setdefault("Update", {})["Channel"] = patch.channel
-    return data
+#: 属主服务名的前缀：``maafw.owner.<专项插件 id>.v1``。
+OWNER_SERVICE_PREFIX = "maafw.owner.{owner}.v1"
+
+#: 属主服务的 8 个操作 → 混进专项 ``Plugin`` 的方法名（:class:`OwnerServiceMixin`）。
+OWNER_OPERATIONS: dict[str, str] = {
+    "list": "owner_list",
+    "read": "owner_read",
+    "check_source_path": "owner_check_source_path",
+    "plan_rules": "owner_plan_rules",
+    "project_mismatch": "owner_project_mismatch",
+    "lock": "owner_lock",
+    "unlock": "owner_unlock",
+    "write": "owner_write",
+}
+
+#: 写回补丁里认的键（键不在 = 这一项不写）。
+RECORD_PATCH_KEYS = (
+    "source_path",
+    "report",
+    "source_version",
+    "imported_at",
+    "channel",
+)
+
+
+def owner_service_prefix(owner: str) -> str:
+    """属主 ``owner``（专项插件 id）的服务名前缀。"""
+
+    return OWNER_SERVICE_PREFIX.format(owner=owner)
+
+
+def owner_provides(owner: str) -> dict[str, str]:
+    """专项 ``Plugin.provides_services`` 里属主那 8 项：``{服务名: 方法名}``。"""
+
+    prefix = owner_service_prefix(owner)
+    return {f"{prefix}.{op}": method for op, method in OWNER_OPERATIONS.items()}
 
 
 def _json_text(value: Any) -> Any:
+    """路径之类转成字符串；``None`` 与已是 JSON 值的原样。"""
+
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
     if hasattr(value, "__fspath__"):
@@ -110,13 +98,19 @@ def _json_text(value: Any) -> Any:
 
 
 def _json_time(value: Any) -> str | None:
+    """时刻出 ISO 8601 字符串（``datetime.isoformat()``）；空值 ``None``；已是字符串的原样。"""
+
     if value is None or isinstance(value, str):
         return value
     isoformat = getattr(value, "isoformat", None)
-    return str(isoformat()) if callable(isoformat) else str(value)
+    if callable(isoformat):
+        return str(isoformat())
+    return str(value)
 
 
 def _json_report(value: Any) -> Any:
+    """导入报告原样（JSON 文本或字典都行）；字典里的值也只留 JSON 值。"""
+
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
     if isinstance(value, Mapping):
@@ -127,6 +121,13 @@ def _json_report(value: Any) -> Any:
 
 
 def record_payload(uid: str, config: Any, order: int = 0) -> dict[str, Any]:
+    """托管记录的字典形（项目服务各操作的 ``record``、属主 ``list`` / ``read`` 回的都是它）。
+
+    字段与项目更新的 ``ManagedRecord`` 一一对应、取配置原值，全部转成 JSON 值：路径出字符串，
+    ``imported_at`` 出 ``Embedded.ImportedAt.isoformat()``（空值 ``None``）。``proxy_address``、
+    ``mirror_cdk`` 是机密，调用方不得写进日志。``order`` 是宿主托管列表里的位置，只拿一份时填 0。
+    """
+
     return {
         "uid": str(uid),
         "kind": type(config).__name__.removesuffix("Config"),
@@ -148,6 +149,8 @@ def record_payload(uid: str, config: Any, order: int = 0) -> dict[str, Any]:
 
 
 def _patch_dict_data(patch: Mapping[str, Any]) -> dict[str, Any]:
+    """写回补丁字典 → 配置的分组字典；只放给了的键，形状与原先各处直接写回时一致。"""
+
     data: dict[str, Any] = {}
     if "source_path" in patch:
         data.setdefault("Info", {})["Path"] = patch["source_path"]
@@ -166,49 +169,31 @@ def _patch_dict_data(patch: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class OwnerKeyError(KeyError):
+    """属主说没有这个托管；``str()`` 原样给出那边的原话（同项目更新的 ``OwnerKeyError``）。"""
+
     def __str__(self) -> str:
         return str(self.args[0]) if self.args else ""
 
 
 def _write_result(ok: bool, reason: str = "", detail: str = "") -> dict[str, Any]:
+    """``write`` 的出参：``{ok, reason, detail}``；没写成时另带 ``code`` / ``message``（同 ``reason`` /
+    ``detail``），与服务结果的通用失败形状对得上。"""
+
     if ok:
         return {"ok": True, "reason": "", "detail": ""}
-    return {"ok": False, "reason": reason, "detail": detail, "code": reason, "message": detail}
-
-
-OWNER_SERVICE_PREFIX = "maafw.owner.{owner}.v1"
-OWNER_OPERATIONS: dict[str, str] = {
-    "list": "owner_list",
-    "read": "owner_read",
-    "check_source_path": "owner_check_source_path",
-    "plan_rules": "owner_plan_rules",
-    "project_mismatch": "owner_project_mismatch",
-    "lock": "owner_lock",
-    "unlock": "owner_unlock",
-    "write": "owner_write",
-}
-RECORD_PATCH_KEYS = (
-    "source_path",
-    "report",
-    "source_version",
-    "imported_at",
-    "channel",
-)
-
-
-def owner_service_prefix(owner: str) -> str:
-    return OWNER_SERVICE_PREFIX.format(owner=owner)
-
-
-def owner_provides(owner: str) -> dict[str, str]:
-    prefix = owner_service_prefix(owner)
-    return {f"{prefix}.{operation}": method for operation, method in OWNER_OPERATIONS.items()}
+    return {
+        "ok": False,
+        "reason": reason,
+        "detail": detail,
+        "code": reason,
+        "message": detail,
+    }
 
 
 class ConfigOwner:
     """宿主托管表里某一种确切类型的托管的属主（新形，回字典）。
 
-    与专项配置类的确切类型判据一致：认领用 ``type(config) is <类型>``，类型每次现取；
+    认领用确切类型 ``type(config) is <类型>``，类型每次现取，不靠继承；
     读不加锁、不要求托管完整加载（``list`` 另报 ``ready``）。专项在模块级建一份，交给
     :class:`OwnerServiceMixin`，自己写回项目记录时经 :func:`write_or_raise` 本地调它。
     """
@@ -468,4 +453,3 @@ __all__ = [
     "record_payload",
     "write_or_raise",
 ]
-

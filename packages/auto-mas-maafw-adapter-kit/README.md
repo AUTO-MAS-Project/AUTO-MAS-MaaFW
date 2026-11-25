@@ -20,7 +20,7 @@ AUTO-MAS 的 MFW 专项共用库：通用 MFW（`maafw_adapter`）、M9A（`m9a_
 ## 依赖与导入
 
 - 各模块顶层只导入 `auto-mas-maafw-interface` 与 `auto-mas-maafw-native`，离开宿主也能导入；不导入三块服务插件，跨插件的事都经 `services` 走服务调用。
-- 宿主 SDK（`auto_mas_core`：日志、DPAPI、`Config`、公共归档模块、进程作用域、通知）在函数体内取（`signal_notice`、`telemetry_project` 照搬来前的样子，还有两处直接取宿主 `app`，等 SDK 补门面）；属主服务在函数体内取项目更新协议数据类（`maafw_project_update.host.owners` 的属主协议数据类）。真正调用时要在宿主里。
+- 宿主 SDK（`auto_mas_core`：日志、DPAPI、`Config`、公共归档模块、进程作用域、通知）在函数体内取（`signal_notice`、`telemetry_project` 照搬来前的样子，还有两处直接取宿主 `app`，等 SDK 补门面）。真正调用时要在宿主里。
 - `auto-mas-core` 由宿主提供，不在 PyPI 上；和插件包一样写 `>=5.9.0b1,<6`。
 
 ## 开发
@@ -40,4 +40,3 @@ python -m venv .smoke
 ## 许可证
 
 AGPL-3.0-or-later，见 [LICENSE](LICENSE)。
-

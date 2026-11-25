@@ -16,7 +16,6 @@ dependencies = [
     "auto-mas-core>=5.9.0b1,<6",
     "auto-mas-maafw-interface>=0.2.0,<0.3",
     "auto-mas-maafw-native>=0.2.0,<0.3",
-    "auto-mas-maafw-project-update>=0.2.0,<0.3",
 ]
 
 [project.urls]
@@ -45,4 +44,4 @@ ignore = ["F403", "F405"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["maafw_adapter_kit"]
-known-third-party = ["app", "auto_mas_core", "maafw_interface", "maafw_native", "maafw_project_update"]
+known-third-party = ["app", "auto_mas_core", "maafw_interface", "maafw_native"]
