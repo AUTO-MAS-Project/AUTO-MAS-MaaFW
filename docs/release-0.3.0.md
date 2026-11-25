@@ -12,7 +12,7 @@ $uv = 'D:\MAS\code\main\environment\python\Scripts\uv.exe'
 
 ## 0. 已知约束（先读）
 
-1. **不能发成 0.2.x。** 0.2.0 的三个专项写的是 `auto-mas-maafw-*>=0.2.0,<0.3`，而且直接导入三块服务插件的模块（例如 `maafw_runner.host.run_verdict`、`maafw_runner.host.host_client`、`maafw_runner.core.runner.service`，0.2.0 之后都已删掉，共 12 个文件）。积木若发 0.2.1，装着 0.2.0 专项的用户会被升到它、专项加载失败。0.3.0 落在旧专项的范围之外，pip / uv 解不出「0.2 专项 + 0.3 积木」，旧组合自洽。
+1. **不能发成 0.2.x。** 0.2.0 的三个专项写的是 `auto-mas-maafw-*>=0.2.0,<0.3`，而且直接导入三块服务插件的模块（例如 `maafw_runner.host.run_verdict`、`maafw_runner.host.host_client`、`maafw_runner.core.runner.service`，0.2.0 之后都已删掉，共 13 个文件，都在运行积木 `maafw_runner` 下：`core/runner/` 的 `service.py`、`worker_registry.py`，`host/` 的 `attempt_ledger.py`、`host_client.py`、`proxy_quota.py`、`run_messages.py`、`run_notices.py`、`run_record.py`、`run_report.py`、`run_settings.py`、`run_verdict.py`、`signal_notice.py`、`telemetry_project.py`；用 `git diff --no-renames --diff-filter=D --name-only f0bd57b HEAD -- packages` 核）。积木若发 0.2.1，装着 0.2.0 专项的用户会被升到它、专项加载失败。0.3.0 落在旧专项的范围之外，pip / uv 解不出「0.2 专项 + 0.3 积木」，旧组合自洽。
 2. **一族一起到 0.3.0。** 包间接口全换了（插件之间只经服务调用、0.2 的分发式整名 `maafw.runner.v1` / `maafw.agent_env.v1` / `maafw.project.v1` 已删），0.3 的专项配 0.2 的积木同样不行。
 3. **0.3.0 是第一个带 `contract.py` 的版本**，兼容核对脚本这一版只能 `--self` 自检；从 0.3.1 起每次发版对上一版跑（§2.4）。
 4. **不要在活目录里构建。** `packages\auto-mas-maafw-adapter-kit`、`packages\auto-mas-maafw-interface`、`packages\auto-mas-maafw-native` 下各有一个没被 git 跟踪的过期 `build\lib`；直接从源码目录打 wheel（`--wheel` 单打、或从源码目录直接 `bdist_wheel`）时 setuptools 会沿用它：interface 那份里还留着已删的 `maafw_interface\worker_protocol.py`，会被打进 wheel（2026-11-25 在临时拷贝里实测复现过）。**发版时必须从干净导出（`git archive`）构建，或先清掉这三个 `build` 目录。** CI 与发布工作流是新检出、不受影响；`scripts\build_all.py` 和 `uv build` 不带 `--wheel` 时都是先打 sdist 再从 sdist 打 wheel，也不受影响。
@@ -87,9 +87,9 @@ Get-Content $env:TEMP\cx1h\rel030-par\summary.txt
 
 ```powershell
 Set-Location D:\MAS\code\blocks
-.\.venv-dev\Scripts\python.exe -I scripts\contract_compat.py --self          # 0.3.0：只自检
+.\.venv-dev\Scripts\python.exe -I -B scripts\contract_compat.py --self          # 0.3.0：只自检
 # 0.3.1 起：对上一发行版
-.\.venv-dev\Scripts\python.exe -I scripts\contract_compat.py --base auto-mas-maafw-agent-env-v0.3.0 `
+.\.venv-dev\Scripts\python.exe -I -B scripts\contract_compat.py --base auto-mas-maafw-agent-env-v0.3.0 `
   --base runner=auto-mas-maafw-runner-v0.3.0 --base project_update=auto-mas-maafw-project-update-v0.3.0
 ```
 
@@ -108,7 +108,7 @@ tar -xf "$work\src.tar" -C "$work\src"
 foreach ($p in 'auto-mas-maafw-interface','auto-mas-maafw-native','auto-mas-maafw-adapter-kit','auto-mas-maafw-agent-env','auto-mas-maafw-runner','auto-mas-maafw-project-update') {
   & $uv build "$work\src\packages\$p" --out-dir "$work\dist\$p" --python .\.venv-dev\Scripts\python.exe
 }
-.\.venv-dev\Scripts\python.exe -I scripts\check_dists.py "$work\dist" --ref $ref --list > "$work\check_dists.txt"
+.\.venv-dev\Scripts\python.exe -I -B scripts\check_dists.py "$work\dist" --ref $ref --list > "$work\check_dists.txt"
 Get-Content "$work\check_dists.txt" | Select-String -NotMatch '^    '
 ```
 
@@ -119,7 +119,7 @@ Get-Content "$work\check_dists.txt" | Select-String -NotMatch '^    '
 & $uv pip install --python "$work\smoke\Scripts\python.exe" --no-deps (Get-ChildItem "$work\dist" -Recurse -Filter *.whl).FullName
 & $uv pip install --python "$work\smoke\Scripts\python.exe" "pydantic==2.11.7" "json5==0.14.0" packaging psutil
 Push-Location $work
-& "$work\smoke\Scripts\python.exe" -I D:\MAS\code\blocks\scripts\smoke_import.py maafw_interface maafw_native maafw_adapter_kit
+& "$work\smoke\Scripts\python.exe" -I -B D:\MAS\code\blocks\scripts\smoke_import.py maafw_interface maafw_native maafw_adapter_kit
 Pop-Location
 ```
 
@@ -210,12 +210,14 @@ interface、native 的依赖（pydantic、json5、packaging 与 `test` extra）�
 
 `app/core/config/plugin_upgrade.py`（存量自动装与「版本过低」提示用它）：
 
+**宿主树 `mfwcx` 已经改了**：提交 `28ff88faa`（2026-11-25 11:31，「MFW 三个专项的最低版本提到 0.3.0」）把下表 44–47 行改成了「改成」一栏的样子，注释变成两行，三个版本行移到 46–48 行。这个提交只在本地，没有推送；按 §0.6、§5.3，等三个专项的 0.3.0 能从 PyPI 装到之后再随宿主推。下表「现在」一栏是这个提交之前的原文，留作核对。
+
 | 行 | 现在 | 改成 |
 | --- | --- | --- |
-| 44 | `# 0.2 起专项要求宿主带托管生命周期钩子；0.1.x 在本宿主上不是受支持的组合。` | 补一句 0.3 起专项只经服务调三块服务插件，0.2.x 与本宿主上的 0.3 服务插件不是受支持的组合 |
-| 45 | `"maafw_adapter": Version("0.2.0"),` | `"maafw_adapter": Version("0.3.0"),` |
-| 46 | `"m9a_adapter": Version("0.2.0"),` | `"m9a_adapter": Version("0.3.0"),` |
-| 47 | `"mss_adapter": Version("0.2.0"),` | `"mss_adapter": Version("0.3.0"),` |
+| 44 | `# 0.2 起专项要求宿主带托管生命周期钩子；0.1.x 在本宿主上不是受支持的组合。`（`28ff88faa` 已改成两行注释，44–45 行） | 补一句 0.3 起专项只经服务调三块服务插件，0.2.x 与本宿主上的 0.3 服务插件不是受支持的组合 |
+| 45 | `"maafw_adapter": Version("0.2.0"),`（`28ff88faa` 已改，现在第 46 行） | `"maafw_adapter": Version("0.3.0"),` |
+| 46 | `"m9a_adapter": Version("0.2.0"),`（`28ff88faa` 已改，现在第 47 行） | `"m9a_adapter": Version("0.3.0"),` |
+| 47 | `"mss_adapter": Version("0.2.0"),`（`28ff88faa` 已改，现在第 48 行） | `"mss_adapter": Version("0.3.0"),` |
 | 38 | `"MaaEndConfig": "auto-mas-maafw-interface>=0.2.0",` | **不动**（MaaEnd 只要解析库的下限） |
 
 核对：宿主树根 `git grep -n -E 'MINIMUM_ADAPTER_VERSIONS|Version\("0\.' -- app/core/config/plugin_upgrade.py`；改完跑宿主相关测试（`tests\core\test_plugin_startup_upgrade.py`、`tests\core\test_plugin_market.py`、`tests\core\test_plugin_config_upgrade.py`，宿主测试的 `--basetemp` 路径总长不超过 47 个字符）。
