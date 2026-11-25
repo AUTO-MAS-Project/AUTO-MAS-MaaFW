@@ -11,6 +11,7 @@
 - `default_snapshot`、`option_secrets` 算视图目录、判视图健康改读两块库（`maafw_native.layout.view_dir`、`maafw_interface.interface.loader.has_interface_file`，与项目更新同一算法），不再在函数体内导入项目更新。新依赖 `auto-mas-maafw-native`。
 - 删除旧的属主对象入口 `BuiltinConfigOwner`（连同只给它用的 `_owners`、`_record`、`_patch_data`），专项一律用 `ConfigOwner` / `OwnerServiceMixin`；本包不再导入项目更新插件，也不再依赖 `auto-mas-maafw-project-update`。
 - `services.update_request` 多一个可选的 `round_started_at`，写法同 `open_request`：原先发起更新的会话请求里也带着它；不传就不带。
+- `ConfigOwner.write`、`write_or_raise` 多一个参数 `holds_lock`：调用方所在的上下文持有这个托管的宿主 X 锁时（插件路径上宿主 L2 建 L3 之前拿的那把）照持票的写法直接提交原节点，另记一行「更新托管配置（持锁的运行流程写回项目记录）: <托管 id>」。修 0.2.0 起运行时打开项目真的导入 / 重建 / 重新同步后写回被宿主拒绝（「托管 … 正在运行, 无法更新配置项」）、整轮失败。不带这个参数时行为不变；只是 Python 参数，经属主服务进来的写回用不了它。
 
 ## [0.2.0] - 2026-11-22
 

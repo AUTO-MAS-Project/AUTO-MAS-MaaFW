@@ -21,8 +21,12 @@ from typing import TYPE_CHECKING, Any
 from maafw_interface.interface.loader import load_interface_model_cached
 from maafw_interface.interface.plan_rules import EMPTY_PLAN_RULES, MaaFWPlanRules
 
+from ._logging import get_logger
+
 if TYPE_CHECKING:
     from maafw_interface.interface.models import MaaFWInterface
+
+logger = get_logger("MFW 内置运行")
 
 # 属主协议版本：项目更新（``maafw_project_update.host.owners.OWNER_PROTOCOL``）登记时比对，
 # 对不上就当属主没登记。原先直接取项目更新的常量；这里是属主一侧实现的版本，写成字面值，
@@ -338,7 +342,17 @@ class ConfigOwner:
         await self._host().ScriptConfig[uuid.UUID(uid)].unlock(ticket)
         return {"ok": True}
 
-    async def write(self, request: Mapping[str, Any]) -> dict[str, Any]:
+    async def write(
+        self, request: Mapping[str, Any], *, holds_lock: bool = False
+    ) -> dict[str, Any]:
+        """写回项目记录。
+
+        ``holds_lock``：调用方所在的执行上下文持有这个托管的宿主 X 锁（插件路径上宿主 L2 建 L3 之前
+        拿的那把，专项的 ``_host_locked_config`` 不为 None 时）。这时照持票的写法直接提交原节点：
+        ``Config.update_script`` 只要托管锁着就拒绝，而节点本身放行持锁上下文的写入。只是 Python 参数，
+        不进 ``request``，经属主服务调进来的写回用不了它。
+        """
+
         script_id = request.get("script_id")
         patch = request.get("patch") or {}
         ticket = request.get("ticket")
@@ -357,6 +371,13 @@ class ConfigOwner:
             if found.status == "missing":
                 return _write_result(False, "not_found", found.detail)
             return _write_result(False, "rejected", found.detail or "托管不归这个属主")
+        if holds_lock:
+            # 不经 update_script（它那行「更新托管配置」日志这条路不打），这里另记一行。上下文其实
+            # 没持锁、托管又被别人锁着时，宿主节点拒写（ConfigAggregateError），原样抛出。
+            uid, config = found
+            logger.info(f"更新托管配置（持锁的运行流程写回项目记录）: {uid}")
+            await config.update(type(config).model_validate(data))
+            return _write_result(True)
         try:
             # 托管 id 原样交给宿主（它会记进日志）
             await self._host().update_script(str(script_id), data)
@@ -383,18 +404,23 @@ async def write_or_raise(
     patch: Mapping[str, Any],
     *,
     ticket: str | None = None,
+    holds_lock: bool = False,
 ) -> None:
     """专项写回本托管的项目记录（经本插件自己的属主本地写，不绕道项目服务），没写成就抛。
 
     取代项目更新的 ``write_managed_record``：被拒是 ``RuntimeError``、没有这个托管是
     :class:`OwnerKeyError`，异常类型与文字和原先一样。``patch`` 的键见 :data:`RECORD_PATCH_KEYS`，
-    键不在 = 不写。
+    键不在 = 不写。``holds_lock`` 见 :meth:`ConfigOwner.write`：专项在宿主 L2 持锁的上下文里
+    （``_host_locked_config`` 不为 None）写回时传 True；不传时行为不变。
     """
 
     request: dict[str, Any] = {"script_id": str(script_id), "patch": dict(patch)}
     if ticket is not None:
         request["ticket"] = ticket
-    result = await owner.write(request)
+    if holds_lock:
+        result = await owner.write(request, holds_lock=True)
+    else:
+        result = await owner.write(request)
     if result.get("ok"):
         return
     detail = str(result.get("detail") or "")
