@@ -26,6 +26,8 @@ from maafw_native.requirement import (
 )
 from maafw_native.versions import exact_version_of, requirement_distribution_name
 
+from ..path_key import resolved_path_str
+
 
 def pin_agent_maafw_requirement(
     project_path: Path,
@@ -203,7 +205,7 @@ def agent_maafw_pip_constraint(
 def agent_pip_constraint_file(directory: Path, project_path: Path) -> Path:
     """某个项目的约束文件路径：按项目路径哈希命名（与隔离 venv 同一种键），一个项目一份。"""
 
-    key = str(Path(project_path).resolve())
+    key = resolved_path_str(project_path)
     if os.name == "nt":
         key = key.lower()
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]

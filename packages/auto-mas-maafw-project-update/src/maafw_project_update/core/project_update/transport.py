@@ -20,6 +20,8 @@ from weakref import WeakValueDictionary
 
 import httpx
 
+from maafw_project_update.core.path_key import resolved_path_str
+
 from .contracts import artifact_id_for, normalise_sha256
 from .state import (
     DEFAULT_CACHE_ROOT,
@@ -39,7 +41,7 @@ _ASYNC_ARTIFACT_LOCK_GUARD = threading.Lock()
 
 
 def _artifact_async_lock(root: Path, stable_id: str) -> asyncio.Lock:
-    key = (id(asyncio.get_running_loop()), str(root.resolve()), stable_id)
+    key = (id(asyncio.get_running_loop()), resolved_path_str(root), stable_id)
     with _ASYNC_ARTIFACT_LOCK_GUARD:
         lock = _ASYNC_ARTIFACT_LOCKS.get(key)
         if lock is None:

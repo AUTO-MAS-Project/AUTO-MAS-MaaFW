@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from maafw_project_update.core.path_key import resolved_path_str
+
 from .contracts import (
     ArtifactType,
     is_within,
@@ -43,7 +45,7 @@ PROJECT_STATE_DIR_NAME = "maafw_project_state"
 def _resolve_project_state_dir(project_path: Path, operation_root: Path) -> Path:
     """纯路径推导：不碰文件系统，供创建路径与只读探测共用。"""
 
-    normalized = str(project_path.resolve(strict=False)).casefold()
+    normalized = resolved_path_str(project_path).casefold()
     project_key = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
     state_root = (
         operation_root.resolve(strict=False).parent / PROJECT_STATE_DIR_NAME

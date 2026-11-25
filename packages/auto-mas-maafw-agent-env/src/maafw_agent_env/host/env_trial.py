@@ -53,6 +53,7 @@ from maafw_agent_env.core.agent_env.import_check import (
     describe_missing_agent_modules,
     log_agent_import_reports,
 )
+from ..core.path_key import resolved_path_str
 from ._logging import get_logger
 
 # 这几行告警原先在 ``precheck.py`` 里记，沿用它的 logger 名。
@@ -96,7 +97,7 @@ def precheck_staging_agent_root(
     不到另一个正在用的那份。
     """
 
-    key = str(Path(project_path).resolve())
+    key = resolved_path_str(project_path)
     if os.name == "nt":
         key = key.lower()
     digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]

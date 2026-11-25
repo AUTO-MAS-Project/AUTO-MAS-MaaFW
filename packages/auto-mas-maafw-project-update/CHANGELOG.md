@@ -11,6 +11,7 @@
 - 删除 `host.project_path.release_run_reservation`：三个专项交回预约已改用专项共用库的同名函数（经项目服务 `run_release`），这里不再有人调用。
 - 删除旧的分发式服务 `maafw.project.v1` / `maafw.project_update.v1`（`call(op, …)`）与旧的属主登记 `owner.register(name, service)`，一律用按操作拆分的服务；属主晚于本插件登记时照旧补跑一轮启动期维护。
 - `maafw.project_update.v1.update_start` 的请求多一个可选字段 `round_started_at`（ISO 8601），还原方式与缺省值同 `open_start`。
+- 项目预约键（`normalize_project_path`）、项目状态目录与项目锁文件名、更新包下载的进程内锁先去掉 `Path.resolve()` 偶尔交回的 `\\?\` 前缀（`\\?\UNC\` 换回 `\\`）再归一：Windows 上别的线程正建或替换目录时 CPython 3.12 会交回带前缀的路径，同一个项目会算出两个预约键，第二次预约本该被挡却放行了。没有前缀时键不变。
 
 ## [0.2.0] - 2026-11-22
 

@@ -51,6 +51,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from maafw_agent_env.core.path_key import resolved_path_str
+
 from ._logging import get_logger
 
 logger = get_logger("MFW 运行环境缓存")
@@ -71,10 +73,11 @@ def _normalize_project_path(path: str | Path) -> str:
 
     与项目更新一侧的预约键（``project_path.normalize_project_path``）同一个写法，这里自留
     一份：环境缓存归 agent 环境，不为一行规范化去引项目更新的模块。已落盘的缓存
-    ``projectPath`` 与文件名都按它算，改写法会让所有缓存一次失效。
+    ``projectPath`` 与文件名都按它算，改写法会让所有缓存一次失效。``resolve()`` 偶尔交回的扩展长度
+    前缀先去掉（``core.path_key``），没有前缀时结果与原写法逐字相同。
     """
 
-    return os.path.normcase(str(Path(path).resolve())).casefold()
+    return os.path.normcase(resolved_path_str(path)).casefold()
 
 
 def _host_python_identity() -> dict[str, str]:

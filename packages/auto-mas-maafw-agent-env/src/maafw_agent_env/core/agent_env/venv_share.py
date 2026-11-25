@@ -53,6 +53,8 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
+from maafw_agent_env.core.path_key import resolved_path_str
+
 try:  # Windows 用字节区间锁，POSIX 用 lockf，与 DurableFileLock 一致
     import msvcrt  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - POSIX
@@ -95,7 +97,7 @@ def resolve_agent_venv_root(managed_env_root: str | Path | None) -> Path:
 
 
 def _path_key(path: str | Path) -> str:
-    key = str(Path(path).resolve())
+    key = resolved_path_str(path)
     if os.name == "nt":
         key = key.lower()
     return key
@@ -413,7 +415,7 @@ _HELD = threading.local()
 
 
 def _lock_key(venv_path: Path) -> str:
-    return os.path.normcase(str(venv_path.resolve())).casefold()
+    return os.path.normcase(resolved_path_str(venv_path)).casefold()
 
 
 def venv_thread_lock(venv_path: Path) -> threading.RLock:

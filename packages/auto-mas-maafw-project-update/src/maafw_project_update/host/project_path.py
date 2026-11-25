@@ -8,6 +8,8 @@ from pathlib import Path
 
 from auto_mas_core.host.utils import get_logger
 
+from maafw_project_update.core.path_key import resolved_path_str
+
 # 账号运行交回预约时的告警沿用任务类的 logger 名（原先就在 runner_task 里记；现由项目服务
 # ``run_release`` 取用）
 _logger = get_logger("MaaFW 插件自动代理")
@@ -21,9 +23,13 @@ _ACTIVE_PROJECT_PATHS_LOCK = threading.Lock()
 
 
 def normalize_project_path(path: str | Path) -> str:
-    """Return the process-wide key used by update and execution reservations."""
+    """Return the process-wide key used by update and execution reservations.
 
-    return os.path.normcase(str(Path(path).resolve())).casefold()
+    ``resolve()`` 在别的线程正建 / 换目录时会交回 ``\\\\?\\`` 前缀，先去掉（``core.path_key``），
+    否则同一个目录算出两个键。
+    """
+
+    return os.path.normcase(resolved_path_str(path)).casefold()
 
 
 async def try_reserve_project_path(path: str | Path) -> str | None:

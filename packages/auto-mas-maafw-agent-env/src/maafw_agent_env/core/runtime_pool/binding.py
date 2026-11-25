@@ -57,6 +57,7 @@ from maafw_native.versions import (
     normalize_version,
     parse_maafw_requirement,
 )
+from ..path_key import resolved_path_str
 from ._shared import (
     MaaFWRuntimePoolError,
     assert_existing_chain_has_no_reparse,
@@ -474,7 +475,7 @@ _BINDING_REFCOUNTS: dict[tuple[str, str], int] = {}
 
 
 def _refcount_key(pool_root: Path, version: str) -> tuple[str, str]:
-    return os.path.normcase(str(Path(pool_root).resolve())), normalize_version(version)
+    return os.path.normcase(resolved_path_str(pool_root)), normalize_version(version)
 
 
 def retain_binding(pool_root: Path, version: str) -> None:
@@ -496,7 +497,7 @@ def release_binding(pool_root: Path, version: str) -> None:
 def retained_versions(pool_root: Path) -> set[str]:
     """本进程里正被引用（prepare 后未 release、预检进行中）的 binding 版本。"""
 
-    root_key = os.path.normcase(str(Path(pool_root).resolve()))
+    root_key = os.path.normcase(resolved_path_str(pool_root))
     with _REFCOUNT_GUARD:
         return {
             version
@@ -749,7 +750,7 @@ def _selections_path(pool_root: Path) -> Path:
 
 
 def _project_key(project_path: str | Path) -> str:
-    return os.path.normcase(str(Path(project_path).resolve(strict=False)))
+    return os.path.normcase(resolved_path_str(project_path))
 
 
 def _read_selections(pool_root: Path) -> dict[str, Any]:
@@ -1387,7 +1388,7 @@ _INSTALL_LOCKS: dict[tuple[str, str], threading.Lock] = {}
 def _install_lock(pool_root: Path, version: str) -> threading.Lock:
     """按 (池根, 版本) 的下载 / 铺目录锁：同一版本只让一个线程去下，别的等它换入后命中。"""
 
-    key = (os.path.normcase(str(Path(pool_root).resolve())), version)
+    key = (os.path.normcase(resolved_path_str(pool_root)), version)
     with _INSTALL_LOCKS_GUARD:
         return _INSTALL_LOCKS.setdefault(key, threading.Lock())
 

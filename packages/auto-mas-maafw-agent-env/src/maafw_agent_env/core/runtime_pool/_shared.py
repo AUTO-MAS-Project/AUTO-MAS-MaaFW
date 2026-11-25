@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from maafw_agent_env.core.path_key import resolved_path_str
+
 
 class MaaFWRuntimePoolError(RuntimeError):
     """Raised when a managed MaaFW runtime pool operation is unsafe or invalid."""
@@ -57,7 +59,7 @@ _POOL_LOCKS: dict[str, threading.RLock] = {}
 def pool_lock(root: Path) -> threading.RLock:
     """按池根键的进程内可重入锁：同一个根不管建多少个 pool 对象都是同一把。"""
 
-    key = os.path.normcase(str(Path(root).resolve()))
+    key = os.path.normcase(resolved_path_str(root))
     with _LOCKS_GUARD:
         return _POOL_LOCKS.setdefault(key, threading.RLock())
 

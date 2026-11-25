@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from maafw_project_update.core.path_key import resolved_path_str
+
 try:  # Windows uses byte-range locks; POSIX uses the equivalent lockf API.
     import msvcrt  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - exercised on POSIX CI only
@@ -516,7 +518,7 @@ def project_lock(
     timeout: float | None = None,
     project_lock_already_held: bool = False,
 ) -> DurableFileLock:
-    normalized = str(project_path.resolve(strict=False)).casefold()
+    normalized = resolved_path_str(project_path).casefold()
     key = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     return DurableFileLock(
         (DEFAULT_PROJECT_LOCK_ROOT / f"{key}.lock").resolve(),
