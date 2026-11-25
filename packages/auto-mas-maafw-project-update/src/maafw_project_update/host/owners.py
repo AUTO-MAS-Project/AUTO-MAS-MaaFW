@@ -44,8 +44,10 @@ if TYPE_CHECKING:
 logger = get_logger("MFW 托管属主")
 
 OWNER_PROTOCOL = 1
-# 端点认不出托管时的原话（与原先按类型判断时一字不差）。
+# 端点认不出托管时的原话（与原先按类型判断时一字不差）：已登记的属主都答上来了、没有一个认领。
 NOT_MAAFW_MESSAGE = "托管配置类型错误, 不是 MFW 类型"
+# 认不出托管、且有属主没答上来（一个属主都没登记、或登记了但服务此刻不在）：多半是专项插件没在运行。
+NO_OWNER_MESSAGE = "没有在运行的专项插件认领这个托管，请检查专项插件的状态"
 
 
 # ---------------------------------------------------------------------------
@@ -559,7 +561,8 @@ def find_managed(script_id: str) -> tuple[str, ManagedRecord]:
     - 有且只有一个属主答「是我的」：返回它；
     - 有属主说 uid 不合法：``ValueError``（原话）；
     - 答上来的属主都说没有：:class:`OwnerKeyError`（原话）；
-    - 其余（不归任何已登记属主、多个属主同时认领、没有属主）：``TypeError``。
+    - 其余：``TypeError``。已登记属主全都答上来、没有一个认领，或多个属主同时认领时是
+      :data:`NOT_MAAFW_MESSAGE`；一个属主都没有、或有已登记属主没答上来时是 :data:`NO_OWNER_MESSAGE`。
 
     属主入口抛出意料之外的异常时原样抛出。
     """
@@ -569,9 +572,11 @@ def find_managed(script_id: str) -> tuple[str, ManagedRecord]:
     missing: str | None = None
     answered = 0
     missing_count = 0
+    unavailable = not _OWNERS
     for name in list(_OWNERS):
         provider = _provider(name)
         if provider is None:
+            unavailable = True
             continue
         result = provider.read_managed(str(script_id))
         answered += 1
@@ -590,6 +595,8 @@ def find_managed(script_id: str) -> tuple[str, ManagedRecord]:
         raise ValueError(invalid)
     if answered and missing_count == answered:
         raise OwnerKeyError(missing or "")
+    if unavailable:
+        raise TypeError(NO_OWNER_MESSAGE)
     raise TypeError(NOT_MAAFW_MESSAGE)
 
 
@@ -734,6 +741,7 @@ __all__ = [
     "ManagedRecord",
     "ManagedShape",
     "NOT_MAAFW_MESSAGE",
+    "NO_OWNER_MESSAGE",
     "OWNER_PROTOCOL",
     "OwnerKeyError",
     "OwnerListing",

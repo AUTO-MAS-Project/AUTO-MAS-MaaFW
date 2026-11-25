@@ -84,7 +84,8 @@ class MaaFWApiReply:
 def maafw_managed(script_id: str) -> owners.ManagedShape:
     """按属主登记认托管，交回它的只读形状（``Info`` / ``Update`` / ``Embedded`` 原值）。
 
-    不归任何已登记属主时抛 ``TypeError``（「托管配置类型错误, 不是 MFW 类型」），uid 不合法抛
+    不归任何已登记属主时抛 ``TypeError``（「托管配置类型错误, 不是 MFW 类型」；有属主没答上来时是
+    ``owners.NO_OWNER_MESSAGE``），uid 不合法抛
     ``ValueError``，没有这个托管抛 ``KeyError``——文案与原先按配置类判断时一字不差。形状上的
     ``is_locked`` 每次读都经属主现问；其余字段是此刻的快照，写回之后要重新取。
     """
