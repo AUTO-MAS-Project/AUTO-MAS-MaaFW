@@ -11,6 +11,7 @@
 - 不再直接导入 agent 环境插件：准备环境、更新预检、运行池回收、环境缓存、运行池路由都改成调 agent 环境服务（工作线程里经线程桥），版本换算与包索引读法改用原生库识别库；`requires` 换成用到的 15 个 agent 环境操作。
 - 删除 `host.project_path.release_run_reservation`：三个专项交回预约已改用专项共用库的同名函数（经项目服务 `run_release`），这里不再有人调用。
 - 删除旧的分发式服务 `maafw.project.v1` / `maafw.project_update.v1`（`call(op, …)`）与旧的属主登记 `owner.register(name, service)`，一律用按操作拆分的服务；属主晚于本插件登记时照旧补跑一轮启动期维护。
+- 属主登记：插件停用、退出、启用时撤掉经 `owner_register` 登记的属主；同名再登记以新的为准，不再回 `owner_conflict`。之前重载或停用 agent 环境会连带重载本插件和三个专项，专项的注销被调用门拒掉，旧登记留在表里，三个专项重新登记时报「重复的托管属主登记」、进入运行故障，要重启后端才恢复。
 - `maafw.project_update.v1.update_start` 的请求多一个可选字段 `round_started_at`（ISO 8601），还原方式与缺省值同 `open_start`。
 - 项目预约键（`normalize_project_path`）、项目状态目录与项目锁文件名、更新包下载的进程内锁、`DurableFileLock` 的进程内锁表键先去掉 `Path.resolve()` 偶尔交回的 `\\?\` 前缀（`\\?\UNC\` 换回 `\\`）再归一：Windows 上别的线程正建或替换目录时 CPython 3.12 会交回带前缀的路径，同一个项目会算出两个预约键，第二次预约本该被挡却放行了。没有前缀时键不变。
 

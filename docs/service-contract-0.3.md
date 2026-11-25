@@ -179,7 +179,7 @@ Spec（`desktop_*` 的 `spec`，替掉 `MaaFWDesktopGameSpec`，字段名不变�
 | 操作 | 种类 | 请求 | 出参 / 终态 | 失败 code / 跳过 | 调用方 |
 | --- | --- | --- | --- | --- | --- |
 | `version` | async | `{}` | `package`、`version` | — | 诊断 |
-| `owner_register` | async | `name`、`prefix` 必填 | `{}` | `owner_conflict` | 三个专项 `on_enable`（只试一次） |
+| `owner_register` | async | `name`、`prefix` 必填 | `{}` | —（同名再登记以新的为准，见表下） | 三个专项 `on_enable`（只试一次） |
 | `owner_unregister` | async | `name` 必填 | `{}` | — | 三个专项 `on_disable`（只试一次） |
 | `managed_find` | async | `script_id` 必填 | `owner`、`record` | `invalid_id`、`not_found`、`not_managed` | 通用 MFW 外壳导入 |
 | `project_context` | async | `record` 必填；`with_view_import_check`（false） | `auto_update_mode`、`proxy_url`（机密）、`follow_source`、`source_form`、`channel`、`shell_hint`、`view_dir`、`view_imported_from_source` | — | 三个专项 |
@@ -194,6 +194,12 @@ Spec（`desktop_*` 的 `spec`，替掉 `MaaFWDesktopGameSpec`，字段名不变�
 | `view_ensure_start/_poll/_close` | 句柄，无 stop | `script_id: str?`；`fallback_path`（`""`） | 终态 `root` | `invalid_managed`、`busy`、`import_failed`、`no_path` | 通用 MFW 外壳 |
 | `script_cloned_start/_poll/_close` | 句柄，无 stop | `source_id`、`target_id`、`owner`、`source_record` 必填 | 终态 `outcome: cloned` / 跳过 `occupied`、`follow_source_clone_unavailable` | `clone_failed` | 三个专项 `on_script_cloned` |
 | `script_removed_start/_poll/_close` | 句柄，无 stop | `script_id`、`owner` 必填 | 终态 `outcome: removed \| absent \| kept_other_owner`、`recorded_owner`、`view_path` | — | 三个专项 `on_script_removed` |
+
+属主登记：
+
+- 属主名就是专项插件 id，同一个 id 不会同时有两个活着的专项实例。同名再登记一律以新的为准，替换旧登记并记一行 info；同名换了 `prefix` 时旧前缀一并作废。同名同前缀再登记什么也不变。早先文档里的失败码 `owner_conflict` 从此不会再出现。
+- 提供方停用、退出时撤掉经 `owner_register` 登记的全部属主，启用时也先撤一遍。原因：连带重载（比如重载 agent 环境）时，宿主先关项目更新的调用门，专项 `on_disable` 里的 `owner_unregister` 会被拒（「插件正在释放，不再受理调用」），而项目更新的模块不重新导入，属主表会留下来。
+- 直接调 `owners.register_owner` 登记的属主（对拍仓的世界、旧内置形态）不归提供方撤，由登记方自己撤。
 
 停用拦截：「MFW 有 N 个项目正在更新，请等更新结束后再操作」「MFW 有 N 个项目目录正被运行、导入或准备运行环境占用，请等它们结束后再操作」「MFW 有 N 项项目操作正在进行（打开、更新、确认环境、修复、复制或删除托管），请等它们结束后再操作」。
 
