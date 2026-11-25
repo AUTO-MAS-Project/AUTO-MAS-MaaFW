@@ -2,7 +2,7 @@
 
 AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 `app/task/MaaFW`）拆成五个可以单独发版的 Python 包（两块是普通库，三块是 AUTO-MAS 插件），外加一个三个专项共用的库。通用 MFW、M9A、MSS 三个专项插件（各自的仓库 `AUTO-MAS-MaaFW-Adapter`、`AUTO-MAS-M9A-Adapter`、`AUTO-MAS-MSS-Adapter`）在它们之上运行。
 
-现在是 0.2.0，目标是先能联调：主路径能装、能跑，已知问题见 [`docs/known-issues-0.2.0.md`](docs/known-issues-0.2.0.md)（0.1.0 时的清单留在 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)）。0.2 要求宿主带托管生命周期钩子，也就是 MFW 已改为插件提供的那一版及以后。
+现在是 0.3.0，服务化后的第一版：三块服务插件之间、专项与服务插件之间只经宿主的服务调用，不再互相导入模块（契约见 [`docs/service-contract-0.3.md`](docs/service-contract-0.3.md)）。0.3 要求宿主带「先封入口、停完任务再封服务注册表」那一路改动，也就是 MFW 已改为插件提供、并带 0.3 服务化收尾的那一版及以后。已知问题的最近一份清单是 [`docs/known-issues-0.2.0.md`](docs/known-issues-0.2.0.md)（0.3.0 的清单待另开，更早的留在 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)）。
 
 ## 六个包
 
@@ -40,7 +40,7 @@ maafw_interface   maafw_native          （库，互不依赖，只依赖 pydant
 - 三个专项 `requires` 运行、agent 环境、项目、项目更新的服务操作（三家共有 70 个，M9A 另加 `project_peek`，通用 MFW 另加外壳导入用的 4 个）；项目更新按专项登记的前缀现取它们的属主服务 `maafw.owner.<专项>.v1.*`。
 
 - 插件对 `auto-mas-core`（插件 SDK，由宿主提供，不在 PyPI 上）写 `>=5.9.0b1,<6`。
-- 包之间的依赖现在仍是 0.2.0 的写法（`>=0.2.0,<0.3`）。0.3.0 起改成：两块库与专项共用库被直接导入，写次版本上限（`>=0.3.0,<0.4`）；对三块服务插件只写下限（`>=0.3.0`），破坏性改动走新的 `v2` 操作。逐文件的改法见 [`docs/release-0.3.0.md`](docs/release-0.3.0.md)。
+- 包之间的依赖：两块库与专项共用库被直接导入，写次版本上限（`>=0.3.0,<0.4`）；对三块服务插件只写下限（`>=0.3.0`），破坏性改动走新的 `v2` 操作。发版步骤见 [`docs/release-0.3.0.md`](docs/release-0.3.0.md)。
 - 三方依赖（pydantic、psutil、numpy、maafw 等）由宿主提供，插件包不声明。
 - 规则：插件之间不直接导入。任何插件的 `plugin.py` 和它在模块顶层的导入链里不出现别的插件包；三块服务插件的宿主侧、专项共用库和三个专项的源码里都不导入别的服务插件包（含函数体内与动态导入）。唯一的例外是运行积木的 worker 子进程：它不在宿主里、调不了服务，经门面 `maafw_agent_env.core.worker_api` 直接导入 agent 环境。
 ## 本地构建

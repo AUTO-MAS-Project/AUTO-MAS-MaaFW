@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-mas-maafw-runner"
-version = "0.2.0"
+version = "0.3.0"
 description = "MFW runner block for AUTO-MAS: worker, timeouts, loop guard, failure screenshots and log redaction"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -12,13 +12,13 @@ license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 authors = [{ name = "AUTO-MAS Team" }]
 keywords = ["auto-mas-plugin", "auto-mas-id:maafw_runner"]
-# worker 直接导入两块库和 agent 环境积木（拆分文档 §2.1、§4），按次版本写上限。
+# worker 直接导入两块库，按次版本写上限；agent 环境只写下限（worker 经 maafw_agent_env.core.worker_api 门面导入，门面带 worker_api 版本）。
 # 三方依赖（pydantic、psutil、numpy、maafw 等）由宿主提供，不在这里声明。
 dependencies = [
     "auto-mas-core>=5.9.0b1,<6",
-    "auto-mas-maafw-interface>=0.2.0,<0.3",
-    "auto-mas-maafw-native>=0.2.0,<0.3",
-    "auto-mas-maafw-agent-env>=0.2.0,<0.3",
+    "auto-mas-maafw-interface>=0.3.0,<0.4",
+    "auto-mas-maafw-native>=0.3.0,<0.4",
+    "auto-mas-maafw-agent-env>=0.3.0",
 ]
 
 [project.urls]

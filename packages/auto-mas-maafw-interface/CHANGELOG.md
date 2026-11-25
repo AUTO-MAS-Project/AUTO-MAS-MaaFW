@@ -1,7 +1,8 @@
 # 更新日志
 
-## 未发布
+## 0.3.0
 
+- 服务化后的第一版：插件之间只经服务调用，0.2 的分发式服务名已删（契约见积木仓 `docs/service-contract-0.3.md`）。
 - 运行结果 `MaaFWRunResult` 加 `projectStoppedTasks`：完成的任务里被项目 pipeline 自己停下的；旧 worker 不带这个键时为空。
 - 从运行积木搬来 `runner.run_events`、`runner.resource_failure`、`runner.game_package`、`run_redaction`（整份，日志改走标准 logging）与 `runner.models` 的三个信号常量；`controller_win32.service` 加 `find_controller` 与无窗口规则文案，`interface.loader` 加 `has_interface_file`，`MaaFWPlanRules` 加 `to_dict` / `from_dict`。
 - 新模块 `service_calls`：跨插件服务调用的通用部分（调用方起止轮询、四种取消收尾、忙重试与保险丝、同步调用与线程桥、提供方句柄表），只用标准库。

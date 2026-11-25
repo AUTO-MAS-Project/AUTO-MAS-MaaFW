@@ -1,7 +1,8 @@
 # 更新日志
 
-## 未发布
+## 0.3.0
 
+- 服务化后的第一版：插件之间只经服务调用，0.2 的分发式服务名已删（契约见积木仓 `docs/service-contract-0.3.md`）。
 - 从 agent 环境搬来子进程环境口径 `subprocess_env`（`host_environment` 整份，加包索引的两个读法）、`versions.pep440_to_maafw_tag` 与 `infer_exact_maafw_version`；`requirement` 加 `project_exact_maafw_version`，`layout` 加 `view_dir`。
 
 ## 0.2.0

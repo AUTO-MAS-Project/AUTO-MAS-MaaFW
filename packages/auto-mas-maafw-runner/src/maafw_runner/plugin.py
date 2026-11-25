@@ -21,7 +21,7 @@ from .host.agent_env_client import AGENT_ENV_REQUIRES
 from .host.services import RunnerServices
 
 PACKAGE_NAME = "auto-mas-maafw-runner"
-PACKAGE_VERSION = "0.2.0"
+PACKAGE_VERSION = "0.3.0"
 SERVICE_NAME = "maafw.runner.v1"
 
 

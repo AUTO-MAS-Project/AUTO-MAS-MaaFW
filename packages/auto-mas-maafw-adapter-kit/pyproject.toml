@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-mas-maafw-adapter-kit"
-version = "0.2.0"
+version = "0.3.0"
 description = "MFW 三个专项共用的代码：属主入口、密码字段加密、默认任务队列、配置恢复池"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -14,8 +14,8 @@ authors = [{ name = "AUTO-MAS Team" }]
 # 是库，不是插件：不带 auto-mas-plugin 关键词，不进插件市场
 dependencies = [
     "auto-mas-core>=5.9.0b1,<6",
-    "auto-mas-maafw-interface>=0.2.0,<0.3",
-    "auto-mas-maafw-native>=0.2.0,<0.3",
+    "auto-mas-maafw-interface>=0.3.0,<0.4",
+    "auto-mas-maafw-native>=0.3.0,<0.4",
 ]
 
 [project.urls]

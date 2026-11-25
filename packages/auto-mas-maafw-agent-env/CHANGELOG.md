@@ -1,7 +1,8 @@
 # 更新日志
 
-## 未发布
+## [0.3.0] - 2026-11-25
 
+- 服务化后的第一版：插件之间只经服务调用，0.2 的分发式服务名已删（契约见积木仓 `docs/service-contract-0.3.md`）。
 - 登记 22 个服务操作 `maafw.agent_env.v1.<操作>`（借还运行环境、准备环境、更新预检、对账回收用句柄四件套，其余是普通调用），请求按 `contract.py` 校验；补 `teardown_blockers`、`on_disable`、`on_teardown`，没被取走的租约由插件自己还。原函数入口照旧。
 - 新门面 `core.worker_api` 给 worker 用；`host_environment`、安装器的包索引两个读法、`binding_fallback.pep440_to_maafw_tag`、`pool_reconcile.previous_maafw_version` 改成转调原生库识别库里的同一份。
 - 路径当键的地方（环境缓存键、隔离 venv 的锁键与路径键、约束文件名、预检 staging 子目录、运行池锁、binding 引用计数与下载锁、项目 binding 选择键、隔离 venv 清单里的 `projectPath`）先去掉 `Path.resolve()` 偶尔交回的 `\\?\` 前缀（`\\?\UNC\` 换回 `\\`）再归一：Windows 上别的线程正建或替换目录时 CPython 3.12 会交回带前缀的路径，同一个目录会算出两个键。没有前缀时键不变，已落盘的缓存不失效；旧清单里带前缀的 `projectPath` 按去前缀后的值比，不因此重建隔离 venv。
