@@ -28,7 +28,8 @@ default_check，界面和实际运行对不上。这里用同一个函数把它�
 （``Config.get_user``，账号页走它）、运行前检查（``embedded_manager._check``，上锁建副本
 之前）。只认真正为空的快照，判据与 ``runner_task`` 建计划的 ``task_snapshot or None`` 相同；
 项目还没导入、interface 读不出来、选的预设已经不在时什么都不写，留给下一次。脚本运行中
-（配置已锁）不写。写入走 ``Config.update_user``，与账号页保存同一条路（特调整理、全局选项
+（配置已锁）不写；只有调用方带 ``holds_lock=True``（锁是宿主替这一轮运行持着的）时照常写，
+这是插件路径上的「运行前检查」：宿主 L2 建 L3 之前就拿了托管的 X 锁。写入走 ``Config.update_user``，与账号页保存同一条路（特调整理、全局选项
 降级双写、密码加密）。存的形状与账号页保存的一致：只列勾选的任务。
 """
 
@@ -157,11 +158,21 @@ async def fill_default_task_snapshots(
     script_id: str,
     script_config: Any,
     user_ids: Iterable[str] | None = None,
+    *,
+    holds_lock: bool = False,
 ) -> None:
-    """把脚本下（``user_ids`` 给了就只看这几位）任务队列为空的用户写成默认队列。从不抛出。"""
+    """把脚本下（``user_ids`` 给了就只看这几位）任务队列为空的用户写成默认队列。从不抛出。
+
+    ``holds_lock``：托管锁着是因为宿主替这一轮运行持着它的 X 锁（专项的 ``_host_locked_config``
+    不为 None 时，运行前检查里）。这时不因「配置已锁」跳过，与内置时先写再上锁的结果相同；不带时
+    托管锁着就不写（别人在运行）。
+    """
+
+    def blocked() -> bool:
+        return script_config.is_locked and not holds_lock
 
     try:
-        if script_config.is_locked:
+        if blocked():
             return
         wanted = None if user_ids is None else {str(item) for item in user_ids}
         users = {
@@ -199,9 +210,9 @@ async def fill_default_task_snapshots(
             user: Any = user, selected_preset: str | None = selected_preset
         ) -> bool:
             # 算的这段时间里、以及 update_user 写入前的预处理期间，账号页存过队列、换过预设，
-            # 或脚本开始运行了：不覆盖、不硬写
+            # 或脚本开始运行了（宿主替本轮持的锁不算）：不覆盖、不硬写
             return (
-                not script_config.is_locked
+                not blocked()
                 and is_empty_task_snapshot(user.Task.TaskSnapshot)
                 and (
                     (str(user.Task.SelectedPreset or "").strip() or None)
