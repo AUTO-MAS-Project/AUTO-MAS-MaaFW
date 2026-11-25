@@ -1,5 +1,7 @@
 # 0.3.0 发版清单
 
+**0.3.0 已于 2026-11-25 发布。** 这份清单留作下次发版的样板。
+
 积木仓六个包、三个专项（通用 MFW、M9A、MSS）和宿主下限一起升到服务化之后的第一版 0.3.0。这份清单给人照着做：每一步写了在哪个目录跑什么命令、看到什么算过。设计依据是 AUTO-MAS 工作区《MFW 服务化实施方案》§8（版本与依赖范围）与工作单 W11、W12、WH；契约本身见 [`service-contract-0.3.md`](service-contract-0.3.md)。
 
 **改版本号、改依赖范围、推送、打标签、发 PyPI，每一步都要用户先点头。** 本清单写于 2026-11-25，对照的是积木仓 `cx/svc-close-20261124`、三个专项仓 `cx/svc-close-20261124`、宿主 `cx/mfw-host-20261124` 当时的文件；下面「现在」一栏的行号以那时为准，动手前用每节给的 `git grep` 再核一遍。
@@ -67,7 +69,7 @@ Get-Content $env:TEMP\cx1h\rel030-pre\summary.txt
 
 `%TEMP%` 里的这两个脚本（`run-local.ps1`、§2.3 的 `run-parity.ps1`）被清掉时，照 `baseline-local-tests.md` 与对拍仓 `DIFF_L2.md` 里记的解释器、环境变量和命令逐个跑，效果相同。
 
-算过：每行 `exit=0`、没有 failed / error。积木六个包 2026-11-25 的基线：runner 51 passed、project-update 123 passed、agent-env 114 passed、adapter-kit 89 passed、interface 68 passed 8 skipped、native 10 passed 10 skipped。三个专项以最近一次记录为准。
+算过：每行 `exit=0`、没有 failed / error。积木六个包 2026-11-25 的基线：runner 163 passed、project-update 230 passed、agent-env 116 passed、adapter-kit 89 passed、interface 68 passed 8 skipped、native 10 passed 10 skipped。三个专项以最近一次记录为准。
 
 ### 2.3 对拍
 
@@ -277,7 +279,7 @@ $work = Join-Path $env:TEMP 'rel030-pypi'            # 新目录
 & $uv pip install --python "$work\Scripts\python.exe" --no-deps --no-cache auto-mas-maafw-interface==0.3.0 auto-mas-maafw-native==0.3.0 auto-mas-maafw-adapter-kit==0.3.0 auto-mas-maafw-agent-env==0.3.0 auto-mas-maafw-runner==0.3.0 auto-mas-maafw-project-update==0.3.0
 & $uv pip install --python "$work\Scripts\python.exe" "pydantic==2.11.7" "json5==0.14.0" packaging psutil
 Push-Location $env:TEMP
-& "$work\Scripts\python.exe" -I D:\MAS\code\blocks\scripts\smoke_import.py maafw_interface maafw_native maafw_adapter_kit
+& "$work\Scripts\python.exe" -I -B D:\MAS\code\blocks\scripts\smoke_import.py maafw_interface maafw_native maafw_adapter_kit
 Pop-Location
 ```
 
