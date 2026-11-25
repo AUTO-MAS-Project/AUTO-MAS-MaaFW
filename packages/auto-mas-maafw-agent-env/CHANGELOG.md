@@ -1,5 +1,9 @@
 # 更新日志
 
+## [0.3.1] - 2026-11-25
+
+- 运行池路由拿不到服务对象、或对象没有 `storage_info()` 时的两条报错不再提已经删掉的服务名 `maafw.runtime_pool.v1`，改说「MaaFW Runtime Pool 服务对象」。常量 `RUNTIME_POOL_SERVICE` 留着，已发版的导入不断。
+
 ## [0.3.0] - 2026-11-25
 
 - 服务化后的第一版：插件之间只经服务调用，0.2 的分发式服务名已删（契约见积木仓 `docs/service-contract-0.3.md`）。
