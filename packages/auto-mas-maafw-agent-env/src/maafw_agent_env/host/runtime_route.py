@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# 内置时代运行池服务的名字。这个服务已经删了：路由现在由本模块直接建运行池服务对象取
+# （resolve_runtime_pool_route），对外经 maafw.agent_env.v1.runtime_route 给出。常量只为已发版的
+# 导入不断而留着，报错文案不再用它。
 RUNTIME_POOL_SERVICE = "maafw.runtime_pool.v1"
 
 
@@ -20,11 +23,11 @@ class MaaFWRuntimePoolRoute:
 
 def runtime_pool_route_from_service(service: Any) -> MaaFWRuntimePoolRoute:
     if service is None:
-        raise MaaFWRuntimeRouteError(f"缺少服务 {RUNTIME_POOL_SERVICE}")
+        raise MaaFWRuntimeRouteError("缺少 MaaFW Runtime Pool 服务对象")
     storage_info = getattr(service, "storage_info", None)
     if not callable(storage_info):
         raise MaaFWRuntimeRouteError(
-            f"服务 {RUNTIME_POOL_SERVICE} 未提供 storage_info()"
+            f"MaaFW Runtime Pool 服务对象（{type(service).__name__}）未提供 storage_info()"
         )
     payload = storage_info()
     if not isinstance(payload, Mapping):
