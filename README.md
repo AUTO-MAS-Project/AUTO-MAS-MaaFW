@@ -19,24 +19,30 @@ AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 
 
 ## 依赖关系
 
+发行包之间的依赖（`pyproject.toml` 的 `dependencies`）：
+
 ```
 maafw_interface   maafw_native          （库，互不依赖，只依赖 pydantic / json5 / packaging）
         ▲               ▲
-        └──────┬────────┘
-       maafw_agent_env                   （插件，requires 无）
-          ▲         ▲
-   maafw_runner   maafw_project_update   （插件，都 requires maafw.agent_env.v1.* 里的操作）
-          ▲         ▲      ▲
-          │         │  maafw_adapter_kit （库，顶层只导入 maafw_interface；SDK 与项目更新在函数体内取）
-          │         │      ▲
-   maafw_adapter / m9a_adapter / mss_adapter（专项插件，另仓）
+        ├───────────────┤
+        │       maafw_adapter_kit       （库，三个专项共用：只导入两块库，SDK 在函数体内取）
+        │               ▲
+ maafw_agent_env        │               （插件，依赖两块库）
+     ▲       ▲          │
+ maafw_runner   maafw_project_update    （插件，依赖两块库与 agent 环境）
+     ▲       ▲          │
+   maafw_adapter / m9a_adapter / mss_adapter（专项插件，另仓；依赖上面六个包）
 ```
 
-- 插件对 `auto-mas-core`（插件 SDK，由宿主提供，不在 PyPI 上）写 `>=5.9.0b1,<6`。
-- 包之间的依赖都写次版本上限（`>=0.2.0,<0.3`）：worker 子进程会直接导入两块库、`maafw_agent_env.core` 和 `maafw_runner.core`；0.1.0 的插件之间也还有直接导入（见已知问题）。
-- 三方依赖（pydantic、psutil、numpy、maafw 等）由宿主提供，插件包不声明。
-- 插件之间 0.1.0 真正走服务的只有项目更新的 `owner.register` / `owner.unregister` 和专项的属主服务 `maafw.owner.<专项>.v1`；其余都是函数体内的直接导入。规则：任何插件的 `plugin.py` 和它在模块顶层的导入链里不出现别的插件包。
+运行时插件之间只经服务调用（每个操作一个服务名 `maafw.<族>.v1.<操作>`，契约见 [`docs/service-contract-0.3.md`](docs/service-contract-0.3.md)）：
 
+- 运行 `requires` agent 环境的借还环境 5 个操作，项目更新 `requires` agent 环境的 15 个操作；agent 环境不 `requires` 任何服务。
+- 三个专项 `requires` 运行、agent 环境、项目、项目更新的服务操作（三家共有 70 个，M9A 另加 `project_peek`，通用 MFW 另加外壳导入用的 4 个）；项目更新按专项登记的前缀现取它们的属主服务 `maafw.owner.<专项>.v1.*`。
+
+- 插件对 `auto-mas-core`（插件 SDK，由宿主提供，不在 PyPI 上）写 `>=5.9.0b1,<6`。
+- 包之间的依赖现在仍是 0.2.0 的写法（`>=0.2.0,<0.3`）。0.3.0 起改成：两块库与专项共用库被直接导入，写次版本上限（`>=0.3.0,<0.4`）；对三块服务插件只写下限（`>=0.3.0`），破坏性改动走新的 `v2` 操作。逐文件的改法见 [`docs/release-0.3.0.md`](docs/release-0.3.0.md)。
+- 三方依赖（pydantic、psutil、numpy、maafw 等）由宿主提供，插件包不声明。
+- 规则：插件之间不直接导入。任何插件的 `plugin.py` 和它在模块顶层的导入链里不出现别的插件包；三块服务插件的宿主侧、专项共用库和三个专项的源码里都不导入别的服务插件包（含函数体内与动态导入）。唯一的例外是运行积木的 worker 子进程：它不在宿主里、调不了服务，经门面 `maafw_agent_env.core.worker_api` 直接导入 agent 环境。
 ## 本地构建
 
 需要 Python 3.12。
