@@ -2,7 +2,7 @@
 
 AUTO-MAS 的 MFW 积木仓库：把宿主里的通用 MaaFramework 引擎（原 `app/task/MaaFW`）拆成五个可以单独发版的 Python 包（两块是普通库，三块是 AUTO-MAS 插件），外加一个三个专项共用的库。通用 MFW、M9A、MSS 三个专项插件（各自的仓库 `AUTO-MAS-MaaFW-Adapter`、`AUTO-MAS-M9A-Adapter`、`AUTO-MAS-MSS-Adapter`）在它们之上运行。
 
-现在是 0.3.0，服务化后的第一版：三块服务插件之间、专项与服务插件之间只经宿主的服务调用，不再互相导入模块（契约见 [`docs/service-contract-0.3.md`](docs/service-contract-0.3.md)）。0.3 要求宿主带「先封入口、停完任务再封服务注册表」那一路改动，也就是 MFW 已改为插件提供、并带 0.3 服务化收尾的那一版及以后。已知问题的最近一份清单是 [`docs/known-issues-0.2.0.md`](docs/known-issues-0.2.0.md)（0.3.0 的清单待另开，更早的留在 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)）。
+现在是 0.3.0，服务化后的第一版：三块服务插件之间、专项与服务插件之间只经宿主的服务调用，不再互相导入模块（契约见 [`docs/service-contract-0.3.md`](docs/service-contract-0.3.md)）。0.3 要求宿主带「先封入口、停完任务再封服务注册表」那一路改动，也就是 MFW 已改为插件提供、并带 0.3 服务化收尾的那一版及以后。已知问题的最近一份清单是 [`docs/known-issues-0.3.0.md`](docs/known-issues-0.3.0.md)（更早的留在 [`docs/known-issues-0.2.0.md`](docs/known-issues-0.2.0.md) 和 [`docs/known-issues-0.1.0.md`](docs/known-issues-0.1.0.md)）。
 
 ## 六个包
 
