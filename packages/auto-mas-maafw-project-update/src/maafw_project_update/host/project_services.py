@@ -107,6 +107,20 @@ def display_name(script_id: str) -> str:
     return name or str(script_id)[:8]
 
 
+class _ServiceResolve:
+    """经 ``owner_register`` 服务登记的属主「取入口的办法」；停用 / 启用清表时据类型认出来。"""
+
+    __slots__ = ("_entry",)
+
+    def __init__(self, entry: Any) -> None:
+        self._entry = entry
+
+    def __call__(self) -> Any:
+        # 每次现取：属主的服务此刻没登记就交回 None，owners 当成「属主没登记」
+        entry = self._entry
+        return entry if entry.available() else None
+
+
 def _current_scope() -> Any:
     from auto_mas_core.host.utils_common_process_scope import current_process_scope
 
@@ -285,16 +299,14 @@ class ProjectServices:
         name, prefix = parsed.name, parsed.prefix
         resolve = self._owner_prefixes.get((name, prefix))
         if resolve is None:
-            entry = ServiceOwnerEntry(name, prefix, self.services)
-
-            def resolve() -> Any:
-                # 每次现取：属主的服务此刻没登记就交回 None，owners 当成「属主没登记」
-                return entry if entry.available() else None
-
-        try:
-            owners.register_owner(name, resolve=resolve)
-        except ValueError as exc:
-            return _failure("owner_conflict", str(exc))
+            resolve = _ServiceResolve(ServiceOwnerEntry(name, prefix, self.services))
+        # 同名再登记以新的为准（owners 里替换并记一句）；同名换了前缀时旧前缀的取入口函数一并丢掉，
+        # 与注销（_forget_owner）一样不留旧的
+        owners.register_owner(name, resolve=resolve)
+        for key in [
+            key for key in self._owner_prefixes if key[0] == name and key[1] != prefix
+        ]:
+            del self._owner_prefixes[key]
         self._owner_prefixes[(name, prefix)] = resolve
         # 启动期维护因属主没登记跳过了迁移时，补跑一轮（Plugin 上实现）
         self._schedule_rerun_after_owner()
@@ -315,6 +327,23 @@ class ProjectServices:
         owners.unregister_owner(name)
         for key in [key for key in self._owner_prefixes if key[0] == name]:
             del self._owner_prefixes[key]
+
+    def _forget_all_owners(self) -> None:
+        """撤掉经 ``owner_register`` 服务登记的全部属主（停用、退出、启用时）。
+
+        连带重载时本模块不重新导入，属主表跟着留下；上一代专项的注销可能被调用门拒掉没送达，不把它们
+        的登记留给下一代。直接调 ``owners.register_owner`` 登记的不在此列（登记方自己撤）。
+        """
+
+        from . import owners
+
+        stale = owners.clear_owners(
+            only=lambda resolve: isinstance(resolve, _ServiceResolve)
+        )
+        if stale and not self._owner_prefixes:
+            # 本实例没登记过却在表里：是上一代留下的
+            _logger().info(f"撤掉上一代留下的托管属主登记：{', '.join(stale)}")
+        self._owner_prefixes.clear()
 
     # ------------------------------------------------------------------
     # 短操作

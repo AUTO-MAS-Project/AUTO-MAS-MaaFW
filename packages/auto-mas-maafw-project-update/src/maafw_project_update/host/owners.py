@@ -332,16 +332,36 @@ _loaded_signal: Callable[[], bool] | None = None
 
 
 def register_owner(name: str, *, resolve: OwnerResolver) -> None:
-    """登记一个属主：只记名字与取入口的办法。同名同参数重复登记不报错，同名换参数报错。"""
+    """登记一个属主：只记名字与取入口的办法。
+
+    同名再登记以新的为准：属主名就是专项插件 id，同一个 id 不会同时有两个活着的专项实例，表里留着
+    的旧登记只可能是上次注销没送达（比如连带重载时项目更新已在释放、注销被调用门拒了）。同名同参数
+    重复登记什么也不变。
+    """
 
     existing = _OWNERS.get(name)
     if existing is not None and existing is not resolve:
-        raise ValueError(f"重复的托管属主登记: {name}")
+        logger.info(f"托管属主 {name} 重新登记，以新的为准（旧登记是上次没注销掉的）")
     _OWNERS[name] = resolve
 
 
 def unregister_owner(name: str) -> None:
     _OWNERS.pop(name, None)
+
+
+def clear_owners(
+    *, only: Callable[[OwnerResolver], bool] | None = None
+) -> tuple[str, ...]:
+    """撤掉属主登记：全部，或取入口的办法被 ``only`` 认出来的那些；返回撤掉的属主名。
+
+    项目更新插件停用、退出与启用时只撤自己经 ``owner_register`` 服务登记的（不把上一代的登记带进
+    下一代），直接调 :func:`register_owner` 登记的留给登记方自己撤。
+    """
+
+    names = [name for name, resolve in _OWNERS.items() if only is None or only(resolve)]
+    for name in names:
+        del _OWNERS[name]
+    return tuple(names)
 
 
 def registered_owners() -> tuple[str, ...]:
@@ -723,6 +743,7 @@ __all__ = [
     "UNSET",
     "WriteResult",
     "check_source_path",
+    "clear_owners",
     "display_name",
     "find_managed",
     "group_members",

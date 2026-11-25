@@ -107,6 +107,8 @@ class Plugin(ProjectServices, ExtensionPlugin):
     # -- 生命周期 ---------------------------------------------------------------
 
     async def on_enable(self) -> None:
+        # 经服务登记的属主从空表开始：连带重载时本模块不重新导入，表里可能留着上一代专项没注销掉的登记
+        self._forget_all_owners()
         # 旧函数入口（会话、维护、准备环境……）经这个槽现取解析器调 agent 环境、问属主
         service_slot.bind(
             self.services,
@@ -140,6 +142,8 @@ class Plugin(ProjectServices, ExtensionPlugin):
     async def on_disable(self) -> None:
         # 在途服务作业置停止并取消、打开作业的预约等它做完再交回、清空句柄表
         await self.shutdown_services(teardown=False)
+        # 撤掉经服务登记的属主：下游专项此刻注销会被调用门拒掉（本插件已在释放），登记不能留给下一代
+        self._forget_all_owners()
         # 后台维护随 background_tasks 组由宿主取消；这里撤掉注入的信号与解析器
         if self._signal_injected:
             owners.set_loaded_signal(None)
@@ -151,6 +155,7 @@ class Plugin(ProjectServices, ExtensionPlugin):
         """退出：在途服务作业置停止，最多等 2 秒，清空句柄表（宿主退出时调它，不调 ``on_disable``）。"""
 
         await self.shutdown_services(teardown=True)
+        self._forget_all_owners()
         service_slot.unbind(getattr(self, "services", None))
 
 
