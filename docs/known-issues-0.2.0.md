@@ -149,3 +149,33 @@
 | 44 | 只有配置、没有副本时，启动维护把运行环境缓存整批回收 | 托管还登记着、视图一个都不在时，这一轮不回收并记一行日志 | 本仓库 `bf074bf` |
 | 45 | 项目用 `StopTask` 自己停掉任务时，日志先报「后续任务已停止」又写「任务完成」 | 口径定为「记成功但标出被停止」：成功次数照算、不重试、后面的任务照跑；worker 日志写「任务已被项目停止」，专项账号日志写「MaaFW 任务已被项目停止」，逐任务列结果的地方带「（被项目停止）」。依据是节点动作通知里的 `action_details.action == "StopTask"`，老 binding 给不出这个字段时按原来的行为。没在真机上重跑 M9A v4.15.0 | 本仓库 `21da0e4`，三个专项 `953864a`、`1e33b7e`、`8bb1396` |
 | 37 | 依次启用时，项目更新先于三个专项启用，启动维护跑在属主登记之前，日志「MFW 维护」记一条 WARNING：「MFW 托管属主的回答这次不算数，跳过 MFW 副本迁移」；重启后（六个插件一起启用）正常：`MFW 副本迁移完成：采纳 0 个、失败 0 个` | 启动期维护因属主还没登记跳过副本迁移时（`migration_deferred`），第一个属主经 `owner.register` 登记后等 10 秒补跑一轮启动期维护，同一次启用只补一次 | `224b7a1` |
+
+## 2026-11-25 服务化收口后的状态
+
+服务化收口（分支 `cx/svc-close-20261124`）之后，按代码逐条核对上面清单里与这次相关的条目。每条一句依据；写「没核实」的就是没核实。第 47、48 条和「从 0.1.0 升上来」的事不在这次评。
+
+| # | 现在 | 依据 |
+| --- | --- | --- |
+| 4 | 没有了 | agent 环境、运行、项目 / 项目更新三块服务插件按操作拆的服务（22、29、33 + 13 个）都在各自 `contract.py` 里，并登记进 `plugin.py` 的 `provides_services`；旧的分发服务和 `owner.register` 已删 |
+| 5 | 没有了 | 三个专项、项目更新、运行积木 `host/` 不再导入别的插件包，运行积木 `core/` 只经允许的 `worker_api` 门面；共用库最后两处导入项目更新的地方（只给旧 `BuiltinConfigOwner` 用的辅助函数）与对 `auto-mas-maafw-project-update` 的包依赖在 `78a6698` 删掉；属主改经 `maafw.owner.<专项>.v1.<操作>` 服务 |
+| 7 | 还在，等 SDK | 运行积木 `host/desktop_game.py` 仍在函数体内导入 `app.utils.common.game_resolution` 与 `app.utils.process_platform`，`host/telemetry_project.py` 导入 `app.services.telemetry` |
+| 8 | 还在，等 SDK | 项目更新 `plugin.py` 仍取 `app.core.config.manager._PROCESS_STARTED_AT`，`api/update.py` 仍取 `app.services.common.update.transport` |
+| 9 | 还在，等 SDK | 三个专项的 `manager.py` 顶层仍导入 `app.core.notify.lifecycle.NotificationTaskBase`，三家的 `account_run.py` 仍导入 `app.core.notify.formats.maafw` |
+| 11 | 部分还在 | 通用 MFW、MSS 的 `expander.py` 仍「整轮交给沿用的脚本级管理器」，这两家没有 `check()`；只有 M9A 的 `check()` 接了项目服务 `project_peek`。原文「MSS 外壳没把管理器回调的错误回报给 L2」已过时：MSS `expander.py` 收尾时读 `manager.callbacks.errors` |
+| 12 | 有疑点，没核实 | 插件路径下 L2 先拿托管的 X 锁，专项 `prepare_before_lock` 写回导入报告时不带票，走 `ConfigOwner.write` → 宿主 `Config.update_script`，而它在节点已锁时会拒绝；11-22 的「不是问题」看不出覆盖了运行时打开项目触发导入的这条路径，没有实跑 |
+| 13 | 不是问题 | 三个专项发起更新时都把 `params["prefetch_paths"]` 交给 `update_request` |
+| 15 | 专项已接；只剩配置备份恢复池没有出口 | 五个托管生命周期钩子三家都覆盖了：通用 MFW 在 `plugin.py`，M9A 在 `lifecycle.py`，MSS 在 `plugin.py` 与 `hooks.py` |
+| 16 | 已声明；分身真机没验 | 三家的 `ScriptTypeDecl` 都声明了 `game_kind` 与 `desktop_session`；`_settle_m9a_migration` 仍是 P4 的事 |
+| 17 | 不是问题 | 通用 MFW `shell_instances.py` 的 `_drop_password_fields` 不导入密码字段；另见上面清单第 17 条 11-22 的核实（联调时外壳导入本身没做过） |
+| 22 | `game_package` 范围内，没做 | `game_package.py` 有三份几乎整份相同的拷贝（解析库 `runner/`、运行积木 `host/`、项目更新 `host/`），并进解析库是积木仓库内部的事；`agent-env/prepare` 端点与外壳导入端点的拆分仍算后续契约 |
+| 25 | 设计约束 | worker 只能以 `-m maafw_runner.core.runner.worker` 起，运行积木一直这么起 |
+| 26 | 还在，等 SDK | 惰性 logger 代理仍在 agent 环境 `host/_logging.py` 与运行积木 `host/_sdk.py` |
+| 27 | 还在，等 SDK | 两种取客户端版本号的办法都还在：通用 MFW `account_run.py`、M9A `config_view.py` 读 `Config.VERSION`，MSS `config_view.py` 读宿主资源目录的 `version.json` |
+| 31 | 已消 | 三家 `config.py` 都用 `warnings.filterwarnings` 精确滤掉了字段名遮住父类属性的那条告警 |
+| 35 | 专项已接；只剩配置备份恢复池没有出口 | 同第 15 条 |
+| 36 | 照旧（不用消），这次没有重新核实 | 是测试项目与默认队列的事，与服务化无关 |
+| 37 | 已消（补跑恢复） | 删旧分发入口时补跑那一组被一起删了，新形登记取不到方法就静默不补跑；`841ddc3` 原样恢复，新形 `owner_register` 直接调用，本地测试覆盖「只补一次、重复登记不再加」 |
+| 1、2、3、6、10 | 不在九个包里能消 | 要改 SDK 顶层导出、宿主加载器、依赖分发、版本范围或 P4 的模型搬迁 |
+| 14 | 沿用 11-22 的核实 | 与服务化无关 |
+| 18、19 | 范围内，暂不修 | 第 19 条在项目更新 `api/interface.py` 的 `_preview_plan_rules`：没有 `scriptId` 时仍用空规则表，要改先得有产品口径 |
+| 23、24、28、30、32、33、34、38、42、43、46、49 | 范围外或设计行为 | 依赖前端、HTTP 契约、发版、SDK 出口或口径决定 |
