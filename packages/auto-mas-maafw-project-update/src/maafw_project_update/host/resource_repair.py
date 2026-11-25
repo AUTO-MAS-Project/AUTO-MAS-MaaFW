@@ -23,8 +23,9 @@ MaaFramework 拒收资源包（``load_failed``）多半是旧版本残留（新�
 载荷就告诉调用方立刻再跑一次（不重启游戏 / 模拟器、不占重试次数），否则写一行停止原因。
 
 一个账号一份 :class:`MaaFWResourceRepair`，状态跨尝试保留：每次运行只核对一次（``checked``）；正在跑的
-核对任务（``task``）留给调用方释放项目预约前等它（``project_path.release_run_reservation`` 的
-``pending``）。入参只有普通数据（:class:`MaaFWRepairRequest`，调用方只在要修资源的那条分支里从配置
+核对任务（``task``）留给调用方释放项目预约前等它（原 ``project_path.release_run_reservation`` 的
+``pending``；那个函数已搬到专项共用库，现由修复作业等它收尾，项目服务 ``run_release(after_job=…)``
+再等修复作业）。入参只有普通数据（:class:`MaaFWRepairRequest`，调用方只在要修资源的那条分支里从配置
 组装），账号日志经调用方给的 ``log(message, *, warning=False)`` 写出。
 """
 
@@ -132,7 +133,7 @@ class MaaFWResourceRepair:
             )
         )
         # 核对 / 清理 / 切视图都在工作线程里改载荷与视图：用户这时点停止，得等它收尾再放预约
-        # （release_run_reservation 会等这个任务），否则编辑页的导入、手动更新能同时动同一棵视图。
+        # （修复作业等这个任务，项目服务 run_release 再等修复作业），否则编辑页的导入、手动更新能同时动同一棵视图。
         self.task = task
         # 登记进当前运行的进程作用域：运行被取消时宿主会等它收尾，不让工作线程在预约放掉后继续写视图。
         from auto_mas_core.host.utils_common_process_scope import current_process_scope

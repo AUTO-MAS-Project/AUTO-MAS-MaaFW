@@ -421,7 +421,7 @@ class ProjectServices:
 
     async def project_run_release(self, request: Any = None) -> dict[str, Any]:
         """交回账号运行的预约；``after_job`` 是还在跑的修复作业时挂到它完成上（同原
-        ``project_path.release_run_reservation`` 等 ``pending`` 的那两条）。"""
+        ``project_path.release_run_reservation``——已搬到专项共用库——等 ``pending`` 的那两条）。"""
 
         parsed, failure = self._parse(f"{contract.PROJECT}.run_release", request)
         if failure is not None:
