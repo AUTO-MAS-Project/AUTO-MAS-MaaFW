@@ -1,15 +1,16 @@
-- 删除旧的分发式服务与属主登记入口，统一使用按操作拆分的服务契约。
 # 更新日志
 
 ## 未发布
 
 - 查看副本状态、导入、推断游戏包名、预览 interface 四个端点重新标成 MCP 工具（内置时有，搬进插件后漏了标记）。
 - 托管还登记着、项目视图却一个都不在时（只恢复了配置、数据目录被挪走），启动维护不再回收运行环境缓存。
-- 新增 46 个服务操作 `maafw.project.v1.<操作>`（33 个）与 `maafw.project_update.v1.<操作>`（13 个），带请求契约 `contract.py`；属主可按新形 `owner_register(name, prefix)` 登记（每个方法一个服务名），旧的 `owner.register(service=…)` 与旧分发服务、旧函数入口原样保留，两种登记都认。停用 / 重载时有在途项目操作会被拒绝，退出时最多等 2 秒。
+- 新增 46 个服务操作 `maafw.project.v1.<操作>`（33 个）与 `maafw.project_update.v1.<操作>`（13 个），带请求契约 `contract.py`；属主按 `owner_register(name, prefix)` 登记（每个方法一个服务名）。停用 / 重载时有在途项目操作会被拒绝，退出时最多等 2 秒。
 - `maafw.project.v1.open_start` 的请求多一个可选字段 `round_started_at`（ISO 8601），提供方在一处还原成秒数交给项目会话，与旧路径会话拿到的值相同；不带时缺省 0（同旧请求的缺省）。
 - `repair_start` 的作业任务登记成调用方进程作用域的保留任务：用户停止后作业交给 `run_release` 等核对跑完，之前宿主停止收尾时它会被一起取消，连带把它等着的核对任务也取消了。
 - 不再直接导入 agent 环境插件：准备环境、更新预检、运行池回收、环境缓存、运行池路由都改成调 agent 环境服务（工作线程里经线程桥），版本换算与包索引读法改用原生库识别库；`requires` 换成用到的 15 个 agent 环境操作。
 - 删除 `host.project_path.release_run_reservation`：三个专项交回预约已改用专项共用库的同名函数（经项目服务 `run_release`），这里不再有人调用。
+- 删除旧的分发式服务 `maafw.project.v1` / `maafw.project_update.v1`（`call(op, …)`）与旧的属主登记 `owner.register(name, service)`，一律用按操作拆分的服务；属主晚于本插件登记时照旧补跑一轮启动期维护。
+- `maafw.project_update.v1.update_start` 的请求多一个可选字段 `round_started_at`（ISO 8601），还原方式与缺省值同 `open_start`。
 
 ## [0.2.0] - 2026-11-22
 
@@ -26,4 +27,3 @@
 ## [0.1.0] - 2026-11-22
 
 - 首次独立发布 MFW 项目更新服务插件：项目副本、视图、导入更新、维护清理、13 个 MFW 端点与托管属主登记，供联调使用。
-

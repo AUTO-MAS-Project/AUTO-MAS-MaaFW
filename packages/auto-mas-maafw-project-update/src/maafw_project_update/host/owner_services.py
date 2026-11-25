@@ -236,4 +236,3 @@ class ServiceOwnerEntry:
 
 
 __all__ = ["OwnerUnavailable", "ServiceOwnerEntry"]
-
