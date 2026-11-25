@@ -296,9 +296,8 @@ class ProjectServices:
         except ValueError as exc:
             return _failure("owner_conflict", str(exc))
         self._owner_prefixes[(name, prefix)] = resolve
-        schedule = getattr(self, "_schedule_rerun_after_owner", None)
-        if callable(schedule):
-            schedule()
+        # 启动期维护因属主没登记跳过了迁移时，补跑一轮（Plugin 上实现）
+        self._schedule_rerun_after_owner()
         return {"ok": True}
 
     async def project_owner_unregister(self, request: Any = None) -> dict[str, Any]:

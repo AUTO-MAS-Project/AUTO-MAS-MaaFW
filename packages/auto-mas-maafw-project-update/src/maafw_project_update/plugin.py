@@ -34,6 +34,8 @@ _LOADED_POLL_SECONDS = 5.0
 _LOADED_WAIT_SECONDS = 600.0
 # 原生日志清理的间隔（原宿主每日定时器里的一步）。
 _NATIVE_LOG_INTERVAL_SECONDS = 24 * 3600.0
+# 启动期维护因属主没登记跳过迁移后，第一个属主登记时等这么久再补跑（让陆续登记的属主到齐）。
+_OWNER_SETTLE_SECONDS = 10.0
 
 logger = get_logger("MFW 项目更新插件")
 
@@ -43,17 +45,38 @@ class Plugin(ProjectServices, ExtensionPlugin):
 
     服务：``maafw.project.v1.<操作>``（33 个）与 ``maafw.project_update.v1.<操作>``（13 个），实现在
     ``host/project_services.py``。三个专项经 ``owner_register(name, prefix)`` 登记属主。
-    ``host/project_services.py``。三个专项经 ``owner_register(name, prefix)`` 登记属主。
     """
+
     # 用到的 agent 环境操作（15 个，``host/agent_env_client.py``）
     requires = _AGENT_ENV_REQUIRES
     provides_services = SERVICE_METHODS
     api_router = _api_router
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._signal_injected = False
+        # 启动期维护服务（on_enable 建）；属主晚于本插件登记时据此补跑一轮（见 _schedule_rerun_after_owner）
         self._maintenance: Any | None = None
+        self._rerun_scheduled = False
 
+    # -- 服务 -----------------------------------------------------------------
+
+    def _schedule_rerun_after_owner(self) -> None:
+        """启动期维护因属主还没登记而跳过了副本迁移时，属主登记后补跑一轮（只补一次）。
+
+        首次依次启用时本插件先于三个专项启用，维护跑在属主登记之前；等 ``_OWNER_SETTLE_SECONDS``
+        让陆续登记的属主都到齐再跑。
+        """
+
+        service = self._maintenance
+        if service is None or self._rerun_scheduled:
+            return
+        if not getattr(service, "migration_deferred", False):
+            return
+        self._rerun_scheduled = True
+        self.background_tasks.spawn(
+            lambda: _rerun_after_owners(service), retain_result=False
+        )
 
     async def teardown_blockers(self) -> list[str]:
         """有项目正在更新、或项目目录正被运行 / 导入 / 准备环境占用时，拒绝停用、重载、卸载。
@@ -109,6 +132,7 @@ class Plugin(ProjectServices, ExtensionPlugin):
             process_started_at=_process_started_at(),
         )
         self._maintenance = service
+        self._rerun_scheduled = False
         self.background_tasks.spawn(
             lambda: _maintenance_loop(service), retain_result=False
         )
@@ -172,6 +196,17 @@ async def _maintenance_loop(service: Any) -> None:
         except Exception:  # noqa: BLE001 - 一次清理失败不该停掉以后的
             logger.exception("MaaFW 原生日志清理失败")
         await asyncio.sleep(_NATIVE_LOG_INTERVAL_SECONDS)
+
+
+async def _rerun_after_owners(service: Any) -> None:
+    """属主登记后补跑的那一轮启动期维护（第一次依次启用时，迁移跳过了）。"""
+
+    await asyncio.sleep(_OWNER_SETTLE_SECONDS)
+    if not managed_configs_loaded():
+        logger.info("托管配置没有完整加载，属主登记后的 MFW 维护补跑这次不做")
+        return
+    logger.info("MFW 托管属主已登记，补跑一轮启动期维护")
+    await _startup_maintenance(service)
 
 
 async def _startup_maintenance(service: Any) -> None:
