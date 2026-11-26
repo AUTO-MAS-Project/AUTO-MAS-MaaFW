@@ -1459,6 +1459,8 @@ def _copy_gzip_native_log_shard(
             with suppress(OSError):
                 target_file.flush()
                 target_file.truncate(mark)
+                # truncate 不动文件位置；不拉回来的话下一个分片的 tell() 偏大，再截断会填零
+                target_file.seek(mark)
         logger.warning(
             f"MaaFW 原生日志分片读取失败，已跳过: {source_path.name} - {exc}"
         )
