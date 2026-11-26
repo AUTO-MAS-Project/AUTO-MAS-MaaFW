@@ -35,6 +35,9 @@
   第一条相关 ERR 行，这时才保留「详见本次运行的 .maafw.log」。
 - 消息里的路径按项目根给相对路径，再过用户目录脱敏（``log_redact``）与密码打码
   （``run_redaction``）。
+- MaaFramework 6.0 起加载失败回调带结构化的 ``errors[]``（worker 收下后放进
+  ``resourceFailure.errors``）：调用方传进 ``load_errors`` 时优先按它说（
+  :func:`describe_resource_load_errors`），没有时照旧刮 ERR 行（5.x）。
 
 纯逻辑，宿主侧用（不进 worker 导入闭包）。
 """
@@ -44,9 +47,10 @@ from __future__ import annotations
 import os
 import re
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from ..log_redact import mask_home_path
 from ..run_redaction import redact_secret_text
@@ -256,6 +260,130 @@ def _clean(text: str, secrets: Iterable[str]) -> str:
     return mask_home_path(redact_secret_text(text, list(secrets)))
 
 
+def _duplicate_node_reason(
+    key: str, file_abs: str, bundle_path: str, project_root: Path
+) -> str:
+    """节点重名的说法（原生 ERR 行与 6.0 结构化诊断共用）。"""
+
+    file_rel = _relative(file_abs, project_root) if file_abs else ""
+    other = (
+        _find_other_definition(bundle_path, key, file_abs, project_root)
+        if file_abs
+        else ""
+    )
+    files = "、".join(item for item in (file_rel, other) if item)
+    reason = (
+        f"节点「{key}」重复定义（{files}），同一资源包里的节点不能重名"
+        if other
+        else f"节点「{key}」在 {file_rel or '某个 pipeline 文件'} 里重复定义"
+        "（同一资源包里别的文件已经定义过它），同一资源包里的节点不能重名"
+    )
+    return reason + "；多半是项目目录里留着旧版本的文件"
+
+
+# MaaFramework 6.0 结构化诊断里的 code → 通用说法里用的名字（docs/zh_cn/2.3-回调协议.md）。
+_LOAD_ERROR_LABELS = {
+    "path_not_found": "路径不存在",
+    "json_read_failed": "文件读取或 JSON 解析失败",
+    "invalid_pipeline_root": "Pipeline 根节点格式错误",
+    "empty_node_name": "节点名为空",
+    "duplicate_node": "节点重复",
+    "invalid_node": "节点配置无效",
+    "node_reference_not_found": "引用的节点不存在",
+    "invalid_regex": "正则表达式无效",
+    "inference_backend_unavailable": "推理后端不可用",
+    "load_failed": "加载出错",
+}
+
+
+def _load_error_text(item: Mapping[str, Any], name: str) -> str:
+    value = item.get(name)
+    return "" if value is None else str(value).strip()
+
+
+def _describe_load_error(
+    item: Mapping[str, Any], bundle_path: str, project_root: Path
+) -> tuple[str, bool]:
+    """一条结构化诊断 → (说法, 是否通用说法)。通用说法后面要补「详见 .maafw.log」。"""
+
+    code = _load_error_text(item, "code")
+    file_abs = _load_error_text(item, "file")
+    file_rel = _relative(file_abs, project_root) if file_abs else ""
+    node = _load_error_text(item, "node")
+    field_name = _load_error_text(item, "field")
+    target = _load_error_text(item, "target")
+    where = file_rel or "pipeline 文件"
+    if code == "duplicate_node" and node:
+        return _duplicate_node_reason(node, file_abs, bundle_path, project_root), False
+    if code == "node_reference_not_found" and node and target:
+        reason = (
+            f"节点「{node}」的 {field_name or 'next'} 引用了不存在的节点「{target}」"
+        )
+        return (reason + (f"（{file_rel}）" if file_rel else "")), False
+    if code == "invalid_regex":
+        if node and field_name:
+            return (
+                f"{where} 里节点「{node}」的 {field_name} 不是有效的正则表达式",
+                False,
+            )
+        if node:
+            return f"{where} 里节点「{node}」有写错的正则表达式", False
+        return f"{where} 里有写错的正则表达式", False
+    if code == "json_read_failed":
+        return f"{where} 不是有效的 JSON（格式写错了或读不了）", False
+    if code == "invalid_pipeline_root":
+        return f"{where} 的内容不是 JSON 对象", False
+    if code == "empty_node_name":
+        return f"{where} 里有名字为空的节点", False
+    if code == "path_not_found" and file_rel:
+        return f"路径不存在：{file_rel}", False
+    label = _LOAD_ERROR_LABELS.get(code) or (
+        f"加载错误（{code}）" if code else "加载错误"
+    )
+    parts = [
+        part
+        for part in (
+            f"文件 {file_rel}" if file_rel else "",
+            f"节点「{node}」" if node else "",
+            f"字段 {field_name}" if field_name else "",
+            f"引用「{target}」" if target else "",
+        )
+        if part
+    ]
+    return label + (f"（{'，'.join(parts)}）" if parts else ""), True
+
+
+def describe_resource_load_errors(
+    bundle_path: str,
+    load_errors: Sequence[Mapping[str, Any]],
+    *,
+    project_root: Path,
+    secrets: Iterable[str] = (),
+) -> str | None:
+    """按 MaaFramework 6.0 的结构化诊断（``resourceFailure.errors``）给一句话；没有可用的条目
+    时返回 None，由调用方退回刮原生 ERR 行。
+
+    取落在这个资源包里的第一条（没有就取第一条）；还有别的条目时补一句共几处。
+    """
+
+    items = [item for item in load_errors or () if isinstance(item, Mapping)]
+    items = [item for item in items if _load_error_text(item, "code")]
+    if not items:
+        return None
+    inside = [
+        item for item in items if _within(_load_error_text(item, "file"), bundle_path)
+    ]
+    chosen = (inside or items)[0]
+    bundle_rel = _relative(bundle_path, project_root) or str(bundle_path)
+    reason, generic = _describe_load_error(chosen, bundle_path, project_root)
+    message = f"MaaFW 运行失败：资源包 {bundle_rel} 加载失败：{reason}"
+    if len(items) > 1:
+        message += f"（另有 {len(items) - 1} 处问题，{NATIVE_LOG_HINT}）"
+    elif generic:
+        message += f"，{NATIVE_LOG_HINT}"
+    return _clean(message, list(secrets))
+
+
 def describe_resource_failure(
     kind: str,
     bundle_path: str,
@@ -263,11 +391,14 @@ def describe_resource_failure(
     *,
     project_root: Path,
     secrets: Iterable[str] = (),
+    load_errors: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     """给用户的失败消息（含「MaaFW 运行失败：」前缀，与其它运行失败同一开头）。
 
     ``kind`` / ``bundle_path`` 来自结果的 ``resourceFailure``；``errors`` 是本次尝试的原生 ERR
     行（:func:`native_error_excerpt` 处理过的，或原样的行，这里会再处理一遍）。
+    ``load_errors`` 是 ``resourceFailure.errors``（MaaFramework 6.0 起的结构化诊断）：有可用条目
+    时优先用它，没有（5.x）时照旧刮 ERR 行。
     """
 
     secrets = list(secrets)
@@ -277,6 +408,12 @@ def describe_resource_failure(
             f"MaaFW 运行失败：资源目录不存在：{bundle_rel}（项目副本里没有这个资源包）",
             secrets,
         )
+    if load_errors:
+        structured = describe_resource_load_errors(
+            bundle_path, load_errors, project_root=project_root, secrets=secrets
+        )
+        if structured is not None:
+            return structured
     parsed = [error for line in errors if (error := parse_native_error(line))]
     lead = f"MaaFW 运行失败：资源包 {bundle_rel} 加载失败："
     roots = [
@@ -293,19 +430,7 @@ def describe_resource_failure(
         key = error.fields.get("key", "")
         message = error.message
         if message.startswith("key already exists"):
-            other = (
-                _find_other_definition(bundle_path, key, chosen[1], project_root)
-                if chosen[1]
-                else ""
-            )
-            files = "、".join(item for item in (file_rel, other) if item)
-            reason = (
-                f"节点「{key}」重复定义（{files}），同一资源包里的节点不能重名"
-                if other
-                else f"节点「{key}」在 {file_rel or '某个 pipeline 文件'} 里重复定义"
-                "（同一资源包里别的文件已经定义过它），同一资源包里的节点不能重名"
-            )
-            reason += "；多半是项目目录里留着旧版本的文件"
+            reason = _duplicate_node_reason(key, chosen[1], bundle_path, project_root)
         elif message.startswith("json::open failed"):
             reason = (
                 f"{file_rel or 'pipeline 文件'} 不是有效的 JSON（格式写错了或读不了）"
@@ -350,6 +475,7 @@ __all__ = [
     "NATIVE_LOG_HINT",
     "NativeError",
     "describe_resource_failure",
+    "describe_resource_load_errors",
     "native_error_excerpt",
     "parse_native_error",
     "read_native_error_lines",

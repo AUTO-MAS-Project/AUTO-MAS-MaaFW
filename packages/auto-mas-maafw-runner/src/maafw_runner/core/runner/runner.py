@@ -372,12 +372,21 @@ class MaaFWTaskError(RuntimeError):
 
 class MaaFWResourceLoadError(RuntimeError):
     """资源包没能加载（``kind`` 见 ``MaaFWResourceFailure``）。文案与以前相同（宿主日志、
-    ``errorMessage`` 不变），另外带上结构化的种类与目录，随结果交给宿主。"""
+    ``errorMessage`` 不变），另外带上结构化的种类与目录，随结果交给宿主。``errors`` 是
+    MaaFramework 6.0 起加载失败回调里的 ``errors[]``（5.x 为空表）。"""
 
-    def __init__(self, message: str, *, kind: str, path: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str,
+        path: str,
+        errors: list[dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
         self.path = path
+        self.errors = list(errors or [])
 
 
 @dataclass(frozen=True)
@@ -1065,6 +1074,8 @@ class MaaFWRunner:
         # 运行前项目自带 Python 检查没通过、按「报错照跑」放行的原因（prepare_agent_python_envs 写）
         self._agent_health_warnings: list[str] = []
         self.event_sinks: list[Any] = []
+        # 资源加载监听器：MaaFramework 6.0 起加载失败的结构化诊断从它取（_load_resource_bundle）
+        self._resource_log_sink: _MaaFWResourceLogSink | None = None
         self.embedded_agent_sys_paths: list[str] = []
         self.send_log: Callable[[str], None] = send_log or (lambda _: None)
         # 结构化运行记录（run_events.py）：阶段与任务起止推给宿主，旁路，发不出去不影响运行。
@@ -1436,7 +1447,9 @@ class MaaFWRunner:
                 failureScreenshots=self.failure_screenshots,
                 timedOut=isinstance(exc, MaaFWRunTimeoutError),
                 resourceFailure=(
-                    MaaFWResourceFailure(kind=exc.kind, path=exc.path)
+                    MaaFWResourceFailure(
+                        kind=exc.kind, path=exc.path, errors=exc.errors
+                    )
                     if isinstance(exc, MaaFWResourceLoadError)
                     else None
                 ),
@@ -2256,18 +2269,54 @@ class MaaFWRunner:
                 kind="missing",
                 path=str(path_info.resolved),
             )
+        job: Any = None
         try:
-            self._wait_job(
-                self.resource.post_bundle(path_info.resolved),
-                failure=f"加载资源失败: {path_info.resolved}",
-            )
+            job = self.resource.post_bundle(path_info.resolved)
+            self._wait_job(job, failure=f"加载资源失败: {path_info.resolved}")
         except RuntimeError as exc:
-            # 资源加载是普通 Job，拿不到失败详情：具体原因只在原生 ERR 行里（原生日志与
-            # worker 的 stdout），由宿主按这里给的种类与目录去找。
+            # 资源加载是普通 Job：5.x 拿不到失败详情，具体原因只在原生 ERR 行里（原生日志与
+            # worker 的 stdout），由宿主按这里给的种类与目录去找。6.0 起加载失败回调带
+            # 结构化的 errors[]，收得到就一并带上，宿主优先用它。
             raise MaaFWResourceLoadError(
-                str(exc), kind="load_failed", path=str(path_info.resolved)
+                str(exc),
+                kind="load_failed",
+                path=str(path_info.resolved),
+                errors=self._resource_load_errors(job),
             ) from exc
         self.send_log(f"已加载资源: {path_info.resolved}")
+
+    def _resource_load_errors(self, job: Any) -> list[dict[str, Any]]:
+        """这次资源加载的结构化诊断（MaaFramework 6.0 起）；5.x 与取不到时为空表。
+
+        先看监听器在 ``Resource.Loading.Failed`` 里收到的 ``errors``；没收到（老 binding 的
+        detail 没有这个属性、回调晚于 wait 返回）且 resource 有 ``get_load_detail`` 时再按
+        job id 取一次同一份快照。只认属性 / 方法在不在，不比版本号。
+        """
+
+        try:
+            res_id = int(getattr(job, "job_id"))
+        except (AttributeError, TypeError, ValueError):
+            return []
+        if res_id <= 0:
+            return []
+        errors: Any = None
+        sink = self._resource_log_sink
+        if sink is not None:
+            errors = sink.take_load_errors(res_id)
+        if not errors:
+            getter = getattr(self.resource, "get_load_detail", None)
+            if callable(getter):
+                try:
+                    detail = getter(res_id)
+                except Exception as exc:
+                    self._log_detail(
+                        f"{DETAIL_LOG_PREFIX}读取资源加载诊断失败: {exc}",
+                        level=LEVEL_WARNING,
+                    )
+                    detail = None
+                if isinstance(detail, dict):
+                    errors = detail.get("errors")
+        return _normalize_resource_load_errors(errors)
 
     def _check_resource_hash(self) -> None:
         """interface 声明了 resource.hash 时与 MaaResourceGetHash 比对，不一致只记详情。
@@ -3216,6 +3265,7 @@ class MaaFWRunner:
             sink = _MaaFWResourceLogSink(self.send_log)
             if self.resource.add_sink(sink) is not None:
                 self.event_sinks.append(sink)
+                self._resource_log_sink = sink
         except Exception as exc:
             self.send_log(f"注册 MaaFW resource 日志监听失败: {exc}")
 
@@ -4518,10 +4568,41 @@ def _encode_current_screen_png(controller: Any) -> bytes:
     return ctypes.string_at(address, size)
 
 
+#: 结构化加载诊断最多带这么多条（随结果过 worker 协议，诊断本身「可能只包含部分错误」）。
+MAX_RESOURCE_LOAD_ERRORS = 50
+#: 每个字段最多这么多字符。
+MAX_RESOURCE_LOAD_ERROR_FIELD_CHARS = 1000
+
+
+def _normalize_resource_load_errors(errors: Any) -> list[dict[str, Any]]:
+    """``errors[]`` → 只含字符串值的字典表（丢掉不是字典的元素与空值），有条数与长度上限。"""
+
+    if not isinstance(errors, (list, tuple)):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for item in errors:
+        if not isinstance(item, dict):
+            continue
+        entry = {
+            str(key): str(value)[:MAX_RESOURCE_LOAD_ERROR_FIELD_CHARS]
+            for key, value in item.items()
+            if value is not None and value != ""
+        }
+        if entry:
+            normalized.append(entry)
+        if len(normalized) >= MAX_RESOURCE_LOAD_ERRORS:
+            break
+    return normalized
+
+
 class _MaaFWResourceLogSink(ResourceEventSink):
     def __init__(self, send_log: Callable[[str], None]) -> None:
         super().__init__()
         self.send_log = send_log
+        # res_id -> 加载失败回调里的 errors[]（MaaFramework 6.0 起有；老 binding 的 detail
+        # 没有 errors 属性，这里一直是空的）
+        self._load_errors: dict[int, list[Any]] = {}
+        self._load_errors_lock = threading.Lock()
 
     def on_resource_loading(
         self,
@@ -4532,6 +4613,23 @@ class _MaaFWResourceLogSink(ResourceEventSink):
         self.send_log(
             f"[MaaFW Resource] {_notification_label(noti_type)}: {detail.path}"
         )
+        if noti_type != NotificationType.Failed:
+            return
+        errors = getattr(detail, "errors", None)
+        if not errors:
+            return
+        try:
+            res_id = int(getattr(detail, "res_id"))
+        except (AttributeError, TypeError, ValueError):
+            return
+        with self._load_errors_lock:
+            self._load_errors[res_id] = list(errors)
+
+    def take_load_errors(self, res_id: int) -> list[Any]:
+        """取走某次加载收到的 errors[]（没收到为空表）。"""
+
+        with self._load_errors_lock:
+            return self._load_errors.pop(int(res_id), [])
 
 
 class _MaaFWControllerLogSink(ControllerEventSink):
