@@ -45,7 +45,9 @@ class MaaFWInterfaceValidationReport(BaseModel):
 _EMULATOR_EXTRA_RELATION: dict[str, dict[str, bool]] = {
     "mumu": {"screencap": True, "input": True},
     "ldplayer": {"screencap": True, "input": False},
-    # ModAVD：AVDExtras 只有截图（MaaFramework v5.7.0 起），输入走默认（Maatouch）
+    # ModAVD：AVDExtras 只有截图（MaaFramework v5.7.0 起），输入走默认（Maatouch）。
+    # 6.0.0-beta.1 起的 ModAVDExtras 带触控，但这里看的是宿主进程里的 maa，和项目
+    # 运行环境的版本无关；运行时按项目的版本再定（maafw_runner.host.device_config.select_avd_extras）
     "avd": {"screencap": True, "input": False},
 }
 
