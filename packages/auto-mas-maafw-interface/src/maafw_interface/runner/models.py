@@ -144,6 +144,10 @@ class MaaFWResourceFailure(BaseModel):
 
     kind: Literal["load_failed", "missing"]
     path: str
+    # MaaFramework 6.0 起加载失败回调（``Resource.Loading.Failed``）带的结构化诊断 ``errors[]``，
+    # 元素形如 ``{"code": "node_reference_not_found", "file": ..., "node": ..., "pointer": ...,
+    # "field": ..., "target": ...}``，除 code 外都可能缺。5.x 与旧 worker 为空表。
+    errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MaaFWRunResult(BaseModel):
