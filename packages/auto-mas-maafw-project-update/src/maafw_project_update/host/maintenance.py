@@ -485,8 +485,9 @@ class MaaFWMaintenanceService:
         """清掉 MFW 项目里过期的 MaaFramework 原生日志备份。
 
         MaaFramework 把 ``debug/maafw.log`` 写到一定大小就整体挪成
-        ``debug/maafw.bak.<时间戳>.log`` 再开新的，但从不回收旧的——一个每天跑
-        的项目几天就能堆出几百 MB。每次运行的完整内容已经另存进历史记录的
+        ``debug/maafw.bak.<时间戳>.log`` 再开新的，5.x 从不回收旧的——一个每天跑
+        的项目几天就能堆出几百 MB（6.0 起备份压成 ``.log.gz``、框架自己也按期清，
+        这里两种都按 MAS 的保留天数删）。每次运行的完整内容已经另存进历史记录的
         ``*.maafw.log``，所以这里只删备份，正在写的 ``maafw.log`` 不动。
         保留时长沿用历史记录的保留天数设置。
 
@@ -523,9 +524,13 @@ class MaaFWMaintenanceService:
             debug_folder = project_path / "debug"
             if not debug_folder.is_dir():
                 continue
-            # 备份文件名由 MaaFramework 决定，与 runner_task 里
-            # _iter_rotated_native_debug_logs 认的是同一套。
-            for file in debug_folder.glob("maafw.bak.*.log"):
+            # 备份文件名由 MaaFramework 决定，与运行积木 plan_run 里
+            # _iter_rotated_native_debug_logs 认的是同一套；6.0 起还有压缩后的
+            # .log.gz（压到一半的 *.interrupted.tmp 不匹配，留给框架自己收拾）。
+            for file in [
+                *debug_folder.glob("maafw.bak.*.log"),
+                *debug_folder.glob("maafw.bak.*.log.gz"),
+            ]:
                 try:
                     if file.stat().st_mtime >= cutoff:
                         continue
