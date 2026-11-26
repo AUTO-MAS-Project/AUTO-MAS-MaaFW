@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.3.1
+
+- 运行结果的 `MaaFWResourceFailure` 加 `errors`：MaaFramework 6.0 起资源包加载失败时带的结构化诊断（code、file、node、pointer、field、target），5.x 与旧 worker 为空表。
+- `describe_resource_failure` 加可选参数 `load_errors`：有可用条目时优先按它说（节点重名、`next` 引用了不存在的节点、正则写错、JSON 读不了等各一句，其余给通用一句带文件 / 节点 / 字段），路径照旧相对化、脱敏；没有时照旧从原生日志里摘错误行。专项要把 `resourceFailure.errors` 传进来才会用上。
+
 ## 0.3.0
 
 - 服务化后的第一版：插件之间只经服务调用，0.2 的分发式服务名已删（契约见积木仓 `docs/service-contract-0.3.md`）。
