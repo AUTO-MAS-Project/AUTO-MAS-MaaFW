@@ -366,8 +366,99 @@ async def build_avd_adb_profile(
         raise RuntimeError(f"找不到 ModAVD 的 adb：{adb_path}")
     console = adb_info.ports.console
     config = await emulator.maafw_adb_extra(device_uid)
-    log(f"ModAVD 截图走 AVDExtras（共享内存 SHM_videmulator{console}），不回落普通 adb")
+    if _avd_extras(config).get("modavd"):
+        # 两份都在：用哪份要等借到运行环境、知道 MaaFramework 版本（select_avd_extras）
+        log(
+            f"ModAVD 截图库可用（控制台端口 {console}）：MaaFramework 6.0 起走 ModAVDExtras，"
+            "更早的走 AVDExtras；都不回落普通 adb"
+        )
+    else:
+        log(
+            f"ModAVD 截图走 AVDExtras（共享内存 SHM_videmulator{console}），不回落普通 adb"
+        )
     return MaaFWAdbControlProfile("avd", True, False, config)
+
+
+# MaaFramework 6.0.0-beta.1 起有 ModAVDExtras（#1624）；6.0.0-alpha.1 早于它合入，没有。
+_MODAVD_EXTRAS_MIN_RELEASE = (6, 0, 0)
+_MODAVD_EXTRAS_VERSION_RE = re.compile(
+    r"^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?[-_.]?(?:(a|alpha|b|beta|c|rc|pre|preview)[-_.]?\d*)?",
+    re.IGNORECASE,
+)
+
+
+def maafw_has_modavd_extras(version: str | None) -> bool | None:
+    """MaaFramework 带不带 ModAVDExtras；版本认不出返回 ``None``。
+
+    版本号有两种写法：binding 的 PEP 440（``6.0.0b3``）和发行包的（``v6.0.0-beta.3``）。
+    6.0.0 的 alpha 不算，beta、rc 和正式版都算。
+    """
+    if not version:
+        return None
+    match = _MODAVD_EXTRAS_VERSION_RE.match(str(version).strip())
+    if match is None:
+        return None
+    release = tuple(int(part or 0) for part in match.groups()[:3])
+    pre = (match.group(4) or "").lower()
+    if release != _MODAVD_EXTRAS_MIN_RELEASE:
+        return release > _MODAVD_EXTRAS_MIN_RELEASE
+    return pre not in {"a", "alpha"}
+
+
+def select_avd_extras(
+    device_config: MaaFWDeviceConfig, maafw_version: str | None, *, log: Log
+) -> MaaFWDeviceConfig:
+    """ModAVD 设备配置按运行环境的 MaaFramework 版本只留一份截图通道。
+
+    插件在截图库存在时 ``extras.avd`` 和 ``extras.modavd`` 都给。两者挂在同一个
+    EmulatorExtras 位上，都留着时 MaaFramework 测速择一，结果不固定，所以这里定下来：
+
+    - 带 ModAVDExtras（6.0.0-beta.1 起）：去掉 ``extras.avd``，截图走 ModAVDExtras；
+      输入放开 EmulatorExtras（排在 Maatouch 前，库不支持触控时 MaaFramework 自己退回
+      Maatouch），触控、按键、文字都走库。
+    - 不带、或认不出版本：去掉 ``extras.modavd``，照旧 AVDExtras 截图 + Maatouch 输入。
+
+    没有 ``extras.modavd``（老插件、截图库不在）时原样返回。
+    """
+    extras = _avd_extras(device_config.config)
+    if not extras.get("modavd"):
+        return device_config
+    use_modavd = maafw_has_modavd_extras(maafw_version) is True
+    drop = "avd" if use_modavd else "modavd"
+    config = dict(device_config.config)
+    config["extras"] = {key: value for key, value in extras.items() if key != drop}
+    if use_modavd:
+        # AVDExtras 的推流开关命令只有它自己用，留着无害，一并去掉免得误导
+        command = config.get("command")
+        if isinstance(command, dict):
+            rest = {
+                key: value
+                for key, value in command.items()
+                if key not in {"EmuWebrtcStart", "EmuWebrtcStop"}
+            }
+            if rest:
+                config["command"] = rest
+            else:
+                config.pop("command")
+        log(
+            f"MaaFramework {maafw_version} 带 ModAVDExtras：截图、触控、按键、文字都走 ModAVD 的库"
+            "（触控不可用时退回 Maatouch）"
+        )
+        return device_config.model_copy(
+            update={"config": config, "inputMethods": _ADB_INPUT_ALL}
+        )
+    log(
+        f"MaaFramework {maafw_version or '版本未知'} 不带 ModAVDExtras（6.0.0-beta.1 起才有）："
+        "截图走 AVDExtras，触控走 Maatouch"
+    )
+    return device_config.model_copy(update={"config": config})
+
+
+def _avd_extras(config: Any) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    extras = config.get("extras")
+    return extras if isinstance(extras, dict) else {}
 
 
 async def ldplayer_maafw_adb_extra(

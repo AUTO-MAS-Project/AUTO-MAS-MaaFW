@@ -67,7 +67,7 @@ from maafw_runner.core.worker_protocol import (
 
 from . import agent_env_client
 from ._sdk import get_logger
-from .device_config import task_start_gate
+from .device_config import select_avd_extras, task_start_gate
 from .environment import (
     MaaFWRunnerEnvironment,
     environment_from_borrow,
@@ -480,6 +480,11 @@ class MaaFWPlanRun:
         event_server_failure: str | None = None
         try:
             self._check_avd_runtime_version(runner_environment.maafw_version)
+            device_config = request.device_config
+            if request.avd_emulator is not None:
+                device_config = select_avd_extras(
+                    device_config, runner_environment.maafw_version, log=emit_log
+                )
             # 同一账号这一轮只认第一次借环境时算出的 agent 命令计划，重试沿用（调用方传回
             # ``agent_plans``）。隔离 venv 的最终目录照旧由 worker 准备 agent 环境时按确切版本再定一次。
             agent_plans = (
@@ -499,7 +504,7 @@ class MaaFWPlanRun:
             )
             payload = service.create_job_payload(
                 runner_plan,
-                request.device_config,
+                device_config,
                 # 失败截图和本次尝试的 .log / .maafw.log 放一起。
                 failure_screenshot_dir=history_dir,
                 failure_screenshot_prefix=history_stamp,
