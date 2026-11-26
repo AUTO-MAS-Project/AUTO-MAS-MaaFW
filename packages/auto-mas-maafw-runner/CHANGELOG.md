@@ -1,5 +1,11 @@
 # 更新日志
 
+## [0.3.1] - 2026-11-26
+
+- ModAVD 上按项目自带的 MaaFramework 版本选截图与输入通道：6.0.0-beta.1 起只留 ModAVD 插件给的 `extras.modavd`，截图、触控、按键、文字走 ModAVDExtras（输入放开 EmulatorExtras，库不带触控时退回 Maatouch）；更早或认不出版本时只留 `extras.avd`，照旧 AVDExtras 截图 + Maatouch。ModAVD 插件没给 `extras.modavd`（0.1.1 之前，或根目录下没有截图库）时不变。
+- 拼本次 `.maafw.log` 时认 MaaFramework 6.0 压缩后的轮转日志 `maafw.bak.*.log.gz`：同一份按去掉 `.gz` 的名字认，`.log` 与 `.log.gz` 并存取 `.log`；`.gz` 流式解压后追加，压坏的分片记一行警告、整片跳过。
+- 资源包加载失败时收下 MaaFramework 6.0 的结构化诊断（加载失败回调的 `errors[]`，没收到时再调 `Resource.get_load_detail`），最多 50 条，随 `resourceFailure.errors` 交给宿主；5.x 为空表。要解析库 0.3.1。
+- MaaFramework 6.0 新增的 Cancelled 通知在运行记录里记成「已取消」，原先落到「事件」。
 ## [0.3.0] - 2026-11-25
 
 - 服务化后的第一版：插件之间只经服务调用，0.2 的分发式服务名已删（契约见积木仓 `docs/service-contract-0.3.md`）。

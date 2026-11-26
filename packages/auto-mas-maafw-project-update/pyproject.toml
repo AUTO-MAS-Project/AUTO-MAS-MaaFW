@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-mas-maafw-project-update"
-version = "0.3.1"
+version = "0.3.2"
 description = "MFW 项目更新服务插件：项目副本、视图、导入更新与维护清理"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
