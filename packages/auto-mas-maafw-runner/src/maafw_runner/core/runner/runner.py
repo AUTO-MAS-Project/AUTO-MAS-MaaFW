@@ -4734,6 +4734,9 @@ class _MaaFWContextLogSink(_ContextEventSinkBase or EventSink):
         self.on_notification(msg, details)
 
 
+_NOTIFICATION_CANCELLED = int(getattr(NotificationType, "Cancelled", 4))
+
+
 def _notification_label(noti_type: NotificationType) -> str:
     if noti_type == NotificationType.Starting:
         return "开始"
@@ -4741,6 +4744,9 @@ def _notification_label(noti_type: NotificationType) -> str:
         return "成功"
     if noti_type == NotificationType.Failed:
         return "失败"
+    # MaaFramework 6.0 新增 NotificationType.Cancelled（值 4）；5.x 没有这个成员，按值比。
+    if noti_type == _NOTIFICATION_CANCELLED:
+        return "已取消"
     return "事件"
 
 
