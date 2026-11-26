@@ -23,12 +23,14 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import queue
 import shutil
 import threading
 import time
 import uuid
+import zlib
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
@@ -1246,28 +1248,66 @@ def _should_forward_framework_log(message: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+#: MaaFramework 6.0 起任务结束后把轮转备份压成 ``maafw.bak.<时间戳>.log.gz``（压到一半是
+#: ``*.log.gz.interrupted.tmp``，不认）。
+_GZIP_SUFFIX = ".gz"
+
+#: 流式复制的块大小（不打码时）。
+_COPY_CHUNK_SIZE = 1024 * 1024
+
+
+def _rotated_native_debug_log_key(candidate: Path) -> str:
+    """轮转分片的身份：去掉 ``.gz`` 的文件名，``.log`` 被压成 ``.log.gz`` 前后是同一片。"""
+
+    name = candidate.name
+    if name.lower().endswith(_GZIP_SUFFIX):
+        return name[: -len(_GZIP_SUFFIX)]
+    return name
+
+
+def _is_gzip_native_debug_log(candidate: Path) -> bool:
+    return candidate.name.lower().endswith(_GZIP_SUFFIX)
+
+
 def _iter_rotated_native_debug_logs(path: Path) -> list[Path]:
     """按轮转时间升序列出 MaaFW 的历史原生日志。
 
     文件名形如 ``maafw.bak.2026.08.30-22.58.30.451.log``，时间戳是零填充的
-    定宽字段，按文件名排序即按时间排序。
+    定宽字段，按文件名排序即按时间排序。MaaFramework 6.0 起备份会被压成同名的
+    ``.log.gz``：两种一起收，按去掉 ``.gz`` 的名字排序；同一时间戳 ``.log`` 与
+    ``.log.gz`` 并存（压缩刚写完、原文件还没删）时取 ``.log``。
     """
 
+    pattern = path.stem + ".bak.*" + path.suffix
     try:
-        return sorted(path.parent.glob(path.stem + ".bak.*" + path.suffix))
+        found = [
+            *path.parent.glob(pattern),
+            *path.parent.glob(pattern + _GZIP_SUFFIX),
+        ]
     except OSError:
         return []
+    chosen: dict[str, Path] = {}
+    for candidate in found:
+        key = _rotated_native_debug_log_key(candidate)
+        current = chosen.get(key)
+        if current is None or (
+            _is_gzip_native_debug_log(current)
+            and not _is_gzip_native_debug_log(candidate)
+        ):
+            chosen[key] = candidate
+    return [chosen[key] for key in sorted(chosen)]
 
 
 def _snapshot_native_debug_log_state(path: Path) -> tuple[int, frozenset[str]]:
-    """记下原生日志的读取起点：当前大小，以及运行前已存在的轮转文件。"""
+    """记下原生日志的读取起点：当前大小，以及运行前已存在的轮转文件（按去掉 ``.gz`` 的名字）。"""
 
     try:
         offset = path.stat().st_size
     except OSError:
         offset = 0
     return offset, frozenset(
-        rotated.name for rotated in _iter_rotated_native_debug_logs(path)
+        _rotated_native_debug_log_key(rotated)
+        for rotated in _iter_rotated_native_debug_logs(path)
     )
 
 
@@ -1287,12 +1327,15 @@ def _plan_native_debug_log_sources(
     所以改为对比运行前后的轮转文件集合：新出现的那些就是本次运行被挪走的
     内容。其中最早的一个才是运行开始时正在写的文件，只有它要跳过运行前已有
     的部分，其余分片都从头读。
+
+    分片身份按去掉 ``.gz`` 的名字比：运行前的 ``.log`` 在运行中被压成 ``.log.gz``
+    不算新分片。``.log.gz`` 分片的偏移按解压后的字节算。
     """
 
     rotated = [
         candidate
         for candidate in _iter_rotated_native_debug_logs(path)
-        if candidate.name not in known_rotations
+        if _rotated_native_debug_log_key(candidate) not in known_rotations
     ]
     sources: list[tuple[str, Path, int]] = [
         ("debug/" + candidate.name, candidate, start_offset if index == 0 else 0)
@@ -1313,7 +1356,8 @@ def _copy_native_debug_log_delta(
 
     按字节复制、不解码不清洗，副本才和项目 ``debug/maafw.log`` 完全一致。每次尝试
     各写各的文件（文件名是这次尝试的开始时刻），追加只是为了不覆盖已有内容。
-    逐个分片流式复制，一份可能有几十 MB。
+    逐个分片流式复制，一份可能有几十 MB。``.log.gz`` 分片（MaaFramework 6.0 起）
+    流式解压后追加，副本里是解压后的原文。
 
     唯一的改动是 ``secrets``（密码字段的原文及其 JSON 转义写法）：框架在
     ``Tasker::post_task`` 里按 INFO 级别记下整份 ``pipeline_override``（``[pipeline_override={...}]``），
@@ -1326,35 +1370,99 @@ def _copy_native_debug_log_delta(
 
     copied = 0
     target_file: Any | None = None
+
+    def open_target() -> Any:
+        nonlocal target_file
+        if target_file is None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target_file = target.open("ab")
+        return target_file
+
     try:
         for _label, source_path, source_offset in _plan_native_debug_log_sources(
             path, start_offset, known_rotations
         ):
-            try:
-                current_size = source_path.stat().st_size
-            except OSError:
-                continue
-            source_offset = source_offset if current_size >= source_offset else 0
-            if current_size <= source_offset:
-                continue
-            if target_file is None:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target_file = target.open("ab")
-            with source_path.open("rb") as source_file:
-                source_file.seek(source_offset)
-                if secret_pairs:
-                    for raw_line in source_file:
-                        for secret, placeholder in secret_pairs:
-                            if secret in raw_line:
-                                raw_line = raw_line.replace(secret, placeholder)
-                        target_file.write(raw_line)
+            if not _is_gzip_native_debug_log(source_path):
+                try:
+                    current_size = source_path.stat().st_size
+                except OSError:
+                    # 列出之后、复制之前被压成了 .log.gz：改读压缩后的那份。
+                    compressed = source_path.with_name(source_path.name + _GZIP_SUFFIX)
+                    if source_path == path or not compressed.is_file():
+                        continue
+                    source_path = compressed
                 else:
-                    shutil.copyfileobj(source_file, target_file)
-                copied += source_file.tell() - source_offset
+                    source_offset = (
+                        source_offset if current_size >= source_offset else 0
+                    )
+                    if current_size <= source_offset:
+                        continue
+                    with source_path.open("rb") as source_file:
+                        source_file.seek(source_offset)
+                        _stream_native_log(source_file, open_target(), secret_pairs)
+                        copied += source_file.tell() - source_offset
+                    continue
+            copied += _copy_gzip_native_log_shard(
+                source_path, source_offset, open_target, secret_pairs
+            )
     finally:
         if target_file is not None:
             target_file.close()
     return copied
+
+
+def _stream_native_log(
+    source_file: Any,
+    target_file: Any,
+    secret_pairs: list[tuple[bytes, bytes]],
+) -> None:
+    """从 ``source_file`` 当前位置读到底写进 ``target_file``；给了 ``secret_pairs`` 就逐行打码。"""
+
+    if secret_pairs:
+        for raw_line in source_file:
+            for secret, placeholder in secret_pairs:
+                if secret in raw_line:
+                    raw_line = raw_line.replace(secret, placeholder)
+            target_file.write(raw_line)
+    else:
+        shutil.copyfileobj(source_file, target_file, _COPY_CHUNK_SIZE)
+
+
+def _copy_gzip_native_log_shard(
+    source_path: Path,
+    source_offset: int,
+    open_target: Callable[[], Any],
+    secret_pairs: list[tuple[bytes, bytes]],
+) -> int:
+    """流式解压一个 ``.log.gz`` 分片追加到目标，返回读过的解压后字节数。
+
+    偏移按解压后的字节算；解压后比偏移还短，说明不是运行开始时那个文件，从头读（与
+    未压缩分片同一口径）。压坏 / 截断的分片（``EOFError``、``BadGzipFile``、
+    ``zlib.error``）记一行警告后整片跳过：已写进目标的这一片内容截掉，别的分片照收。
+    """
+
+    target_file: Any | None = None
+    mark = 0
+    try:
+        with gzip.open(source_path, "rb") as source_file:
+            position = source_file.seek(source_offset)
+            if position < source_offset:
+                position = source_file.seek(0)
+            if not source_file.peek(1):
+                return 0
+            target_file = open_target()
+            mark = target_file.tell()
+            _stream_native_log(source_file, target_file, secret_pairs)
+            return source_file.tell() - position
+    except (EOFError, OSError, zlib.error) as exc:
+        if target_file is not None:
+            with suppress(OSError):
+                target_file.flush()
+                target_file.truncate(mark)
+        logger.warning(
+            f"MaaFW 原生日志分片读取失败，已跳过: {source_path.name} - {exc}"
+        )
+        return 0
 
 
 # ---------------------------------------------------------------------------

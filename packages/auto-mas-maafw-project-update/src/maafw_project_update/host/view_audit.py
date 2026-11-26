@@ -50,6 +50,9 @@ from auto_mas_core.host.utils import get_logger
 logger = get_logger("MFW 写穿巡检")
 
 NATIVE_LOG_BACKUP_GLOB = "maafw.bak.*.log"
+#: MaaFramework 6.0 起任务结束后把轮转备份压成 ``.log.gz``；压到一半的
+#: ``*.log.gz.interrupted.tmp`` 不匹配，留给框架自己续压或清理。
+NATIVE_LOG_BACKUP_GZIP_GLOB = "maafw.bak.*.log.gz"
 
 
 @dataclass
@@ -136,9 +139,10 @@ def _quarantine(blob_store: RuntimeBlobStore, digest: str) -> None:
 
 
 def clean_native_log_backups(view: Path, before: float) -> int:
-    """删 ``debug/maafw.bak.*.log`` 里修改时间早于本轮开始的（history 里已有原样副本）。
+    """删 ``debug/maafw.bak.*.log`` 与 ``.log.gz`` 里修改时间早于本轮开始的（history 里已有原样副本）。
 
-    MaaFramework 自己从不回收轮转备份，``HistoryRetentionTime`` 默认 0 = 永久，靠它永远清不掉。
+    MaaFramework 5.x 自己从不回收轮转备份，``HistoryRetentionTime`` 默认 0 = 永久，靠它永远清不掉。
+    6.0 起压缩后的 ``.log.gz`` 沿用原备份的修改时间，按同一口径删。
     本轮新轮转出来的留着：它们这一轮的片段刚抄进 history，稳妥起见留到下一轮再删。
     """
 
@@ -146,7 +150,10 @@ def clean_native_log_backups(view: Path, before: float) -> int:
     if not debug.is_dir():
         return 0
     removed = 0
-    for path in debug.glob(NATIVE_LOG_BACKUP_GLOB):
+    for path in [
+        *debug.glob(NATIVE_LOG_BACKUP_GLOB),
+        *debug.glob(NATIVE_LOG_BACKUP_GZIP_GLOB),
+    ]:
         try:
             if path.is_file() and path.stat().st_mtime < before:
                 path.unlink()
