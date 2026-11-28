@@ -44,9 +44,12 @@ def test_rejected_scan_link_is_not_enumerated_and_recovers(tmp_path, monkeypatch
     }
     (project / "interface.json").write_text(json.dumps(interface), encoding="utf-8")
     original_glob = Path.glob
+    external_scans = []
 
     def guarded_glob(path, pattern, *args, **kwargs):
-        assert not path.resolve().is_relative_to(external.resolve())
+        if path.resolve().is_relative_to(external.resolve()):
+            external_scans.append(path)
+            raise AssertionError("不能枚举被拒绝的外部目录")
         return original_glob(path, pattern, *args, **kwargs)
 
     monkeypatch.setattr(Path, "glob", guarded_glob)
@@ -56,6 +59,7 @@ def test_rejected_scan_link_is_not_enumerated_and_recovers(tmp_path, monkeypatch
         assert first.option["team"].cases == []
         second = load_interface_model_cached(project)
         assert second.option["team"].cases == []
+        assert not external_scans
     finally:
         if os.name == "nt":
             os.rmdir(link)
