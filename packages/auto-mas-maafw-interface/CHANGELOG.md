@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布
+
+- 项目依赖外壳私有自定义动作时显示加载提示，已导入项目升级后也能看到。
+
 ## 0.3.1
 
 - 运行结果的 `MaaFWResourceFailure` 加 `errors`：MaaFramework 6.0 起资源包加载失败时带的结构化诊断（code、file、node、pointer、field、target），5.x 与旧 worker 为空表。
