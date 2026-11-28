@@ -69,7 +69,8 @@ _USER_WARNING_PREFIX = "MaaFW ProjectInterface "
 #    旧缓存里它是没经校验的原样字段。
 # 7：加载告警多了 ``preset.controller`` 写错（PI v2.10.4）与 ``input_type`` 不认识（v2.10.5），
 #    旧缓存里的告警没有这两类。
-DISK_CACHE_VERSION = 7
+# 8：新增外壳私有 custom 的用户可见告警，旧缓存须重新解析。
+DISK_CACHE_VERSION = 8
 DISK_CACHE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 DISK_CACHE_CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
 _interface_cache: dict[
@@ -281,6 +282,12 @@ def _ensure_pi_v2(data: dict[str, Any]) -> None:
 
 
 def _warn_unsupported_root_fields(data: dict[str, Any], source_path: Path) -> None:
+    if "custom" in data:
+        logger.warning(
+            "MaaFW ProjectInterface 声明了外壳私有 custom 字段；"
+            "内置运行不加载外壳注册的自定义动作或识别，依赖它们的任务可能失败；文件：%s",
+            source_path,
+        )
     supported_keys = {
         field.alias or field_name
         for field_name, field in MaaFWInterface.model_fields.items()
