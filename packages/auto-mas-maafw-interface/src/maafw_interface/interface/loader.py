@@ -83,6 +83,10 @@ class MaaFWInterfaceLoadError(ValueError):
     """Raised when a MaaFW ProjectInterface cannot be loaded safely."""
 
 
+class MaaFWInterfacePathEscape(MaaFWInterfaceLoadError):
+    """A project-relative path resolves outside the project directory."""
+
+
 class _MergeState:
     def __init__(self) -> None:
         self.group_names: set[str] = set()
@@ -210,7 +214,7 @@ def _resolve_project_relative_path(
     normalized_path = _normalize_project_relative_path(raw_path, field_name=field_name)
     resolved_path = (base_dir / normalized_path).resolve()
     if not _is_within_base_dir(resolved_path, base_dir):
-        raise MaaFWInterfaceLoadError(
+        raise MaaFWInterfacePathEscape(
             f"{field_name} 越界，禁止访问 MaaFW 项目目录之外的路径: {raw_path}"
         )
     return resolved_path
@@ -616,45 +620,37 @@ def _scan_scan_select_cases(
             f"scan_select 选项 {option_name} 的 scan_filter 必须是非空字符串"
         )
 
+    normalized_scan_filter = _normalize_project_relative_path(
+        scan_filter,
+        field_name=f"scan_select 选项 {option_name} 的 scan_filter",
+    )
     try:
         resolved_scan_dir = _resolve_project_relative_path(
             base_dir,
             scan_dir,
             field_name=f"scan_select 选项 {option_name} 的 scan_dir",
         )
-    except OSError as exc:
-        if not _is_untrusted_mount_point(exc):
+    except (OSError, MaaFWInterfacePathEscape) as exc:
+        if isinstance(exc, OSError) and not _is_untrusted_mount_point(exc):
             raise
-        # 项目运行期自建的装入点（线上见过视图里的 BBchannel\settings）被系统判为不受信任，
-        # 解析不了就没法做越界判断：不读它，按没有可选项处理，别让整份 interface 读不出来。
+        # 项目自建链接不可解析或落到项目之外时不读它，只跳过该扫描选项。
         logger.warning(
-            "MaaFW ProjectInterface scan_select 选项 %s 的 scan_dir 含不受信任的装入点，"
-            "无法解析：%s（%s）；按没有可选项处理",
+            "MaaFW ProjectInterface scan_select 选项 %s 的 scan_dir 无法安全访问："
+            "%s（%s）；按没有可选项处理",
             option_name,
-            exc.filename or (base_dir / scan_dir),
+            base_dir / scan_dir,
             exc,
         )
         if context is not None:
-            # 照样登记进缓存依赖（用未解析的路径，只拿来 stat / glob 算签名）：装入点被删掉
-            # 或变成可信后签名会变，缓存自动失效，不会一直空着。
-            context.scan_select_specs.add(
-                (
-                    base_dir
-                    / _normalize_project_relative_path(
-                        scan_dir,
-                        field_name=f"scan_select 选项 {option_name} 的 scan_dir",
-                    ),
-                    _normalize_project_relative_path(
-                        scan_filter,
-                        field_name=f"scan_select 选项 {option_name} 的 scan_filter",
-                    ),
+            # 只取路径属性来使缓存失效，不能经 scan_select_specs 的 glob 枚举被拒绝的目录。
+            context.dependency_paths.add(
+                base_dir
+                / _normalize_project_relative_path(
+                    scan_dir,
+                    field_name=f"scan_select 选项 {option_name} 的 scan_dir",
                 )
             )
         return []
-    normalized_scan_filter = _normalize_project_relative_path(
-        scan_filter,
-        field_name=f"scan_select 选项 {option_name} 的 scan_filter",
-    )
     if context is not None:
         context.scan_select_specs.add((resolved_scan_dir, normalized_scan_filter))
 

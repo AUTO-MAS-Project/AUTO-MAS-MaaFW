@@ -1,5 +1,9 @@
 # 更新日志
 
+## 未发布
+
+- 扫描选项指向项目外的链接时只跳过该选项，修复链接后自动重新加载。
+
 ## 0.3.1
 
 - 运行结果的 `MaaFWResourceFailure` 加 `errors`：MaaFramework 6.0 起资源包加载失败时带的结构化诊断（code、file、node、pointer、field、target），5.x 与旧 worker 为空表。
